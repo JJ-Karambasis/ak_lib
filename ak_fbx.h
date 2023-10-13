@@ -99,6 +99,14 @@ AKFBXDEF const char* AK_FBX_Error_Message(void);
 #define AK_FBX_STRNCPY(strA, strB, length) strncpy(strA, strB, length)
 #endif
 
+#if !defined(AK_FBX_MEMSET)
+#define AK_FBX_MEMSET(mem, index, size) memset(mem, index, size)
+#endif
+ 
+#if !defined(AK_FBX_MEMCPY)
+#define AK_FBX_MEMCPY(dst, src, length) memcpy(dst, src, length)
+#endif
+
 #ifndef AK_FBX_ASSERT
 #include <assert.h>
 #define AK_FBX_ASSERT(x) assert(x)
@@ -281,6 +289,17 @@ typedef struct ak_fbx__buffer {
     const ak_fbx_u8* Ptr;
 } ak_fbx__buffer;
 
+static ak_fbx__buffer AK_FBX__Make_Buffer(ak_fbx__arena* Arena, const void* Buffer, ak_fbx_u32 BufferLength) {
+    void* DstBuffer = AK_FBX__Arena_Push(Arena, BufferLength);
+    AK_FBX_MEMCPY(DstBuffer, Buffer, BufferLength);
+
+    ak_fbx__buffer Result;
+    Result.Length = BufferLength;
+    Result.Ptr = DstBuffer;
+
+    return Result;
+}
+
 typedef struct ak_fbx__string {
     ak_fbx_u32 Length;
     const char* Str;
@@ -363,19 +382,29 @@ typedef struct ak_fbx__property_array {
     ak_fbx_u64 Count;
 } ak_fbx__property_array;
 
-typedef struct ak_fbx__node {
+typedef struct ak_fbx__parsing_node {
     ak_fbx__string Name;
 
-    struct ak_fbx__node* Parent;
-    struct ak_fbx__node* FirstChild;
-    struct ak_fbx__node* LastChild;
-    struct ak_fbx__node* PrevSibling;
-    struct ak_fbx__node* NextSibling;
-} ak_fbx__node;
+    struct ak_fbx__parsing_node* Parent;
+    struct ak_fbx__parsing_node* FirstChild;
+    struct ak_fbx__parsing_node* LastChild;
+    struct ak_fbx__parsing_node* PrevSibling;
+    struct ak_fbx__parsing_node* NextSibling;
+} ak_fbx__parsing_node;
 
-static void AK_FBX__Node_Add_Child(ak_fbx__node* Parent, ak_fbx__node* Child) {
+void DEBUG_Print_Node_Name(ak_fbx__parsing_node* Node, int Level) {
+    for(int LevelIndex = 0; LevelIndex < Level; LevelIndex++) {
+        printf("\t");
+    }
+    printf("%.*s\n", Node->Name.Length, Node->Name.Str);
+    for(ak_fbx__parsing_node* Child = Node->FirstChild; Child; Child = Child->NextSibling) {
+        DEBUG_Print_Node_Name(Child, Level+1);
+    }
+}
+ 
+static void AK_FBX__Parsing_Node_Add_Child(ak_fbx__parsing_node* Parent, ak_fbx__parsing_node* Child) {
     Child->Parent = Parent;
-    AK_FBX__DLL_Push_Back_NP(Parent->FirstChild, Parent->LastChild, Child, PrevSibling, NextSibling);
+    AK_FBX__DLL_Push_Back_NP(Parent->FirstChild, Parent->LastChild, Child, NextSibling, PrevSibling);
 }
 
 typedef enum ak_fbx__binary_node_status {
@@ -385,6 +414,15 @@ typedef enum ak_fbx__binary_node_status {
 } ak_fbx__binary_node_status;
 
 #define AK_FBX__BINARY_READ_WORD(stream) Is64Bit ? AK_FBX__Stream_Consume64(stream) : AK_FBX__Stream_Consume32(stream)
+
+//Copy zlib from stb_image.h
+//https://github.com/nothings/stb/blob/master/stb_image.h
+static int ak_fbx__stbi_zlib_decode_buffer(char *obuffer, int olen, const char *ibuffer, int ilen);
+
+static ak_fbx_s8 AK_FBX__Decompress_ZLib(void* OutputBuffer, ak_fbx_u32 OutputLength, const void* InputBuffer, ak_fbx_u32 InputLength) {
+    //TODO: Should we do some validation on the compression length 
+    return ak_fbx__stbi_zlib_decode_buffer(OutputBuffer, (int)OutputLength, InputBuffer, (int)InputLength) != -1;
+}
 
 static ak_fbx_s8 AK_FBX__Binary_Read_Property(ak_fbx__stream* Stream, ak_fbx__property* Property, ak_fbx__arena* Arena) {
     if(!AK_FBX__Stream_Is_Valid(Stream)) {
@@ -402,40 +440,49 @@ static ak_fbx_s8 AK_FBX__Binary_Read_Property(ak_fbx__stream* Stream, ak_fbx__pr
 
         //1 bit bool flag
         case 'C': {
-            ak_fbx_s8 Data = AK_FBX__Stream_Consume8(Stream);
+            Property->Type = AK_FBX__PROPERTY_TYPE_BOOL;
+            Property->Data.Bool = AK_FBX__Stream_Consume8(Stream); 
         } break;
 
         //32 bit signed integer
         case 'I': {
-            ak_fbx_s32 Data = AK_FBX__Stream_Consume32(Stream);
+            Property->Type = AK_FBX__PROPERTY_TYPE_S32;
+            Property->Data.S32 = AK_FBX__Stream_Consume32(Stream);
         } break;
 
         //32 bit floating point
         case 'F': {
-            float Data = *(float*)AK_FBX__Stream_Consume(Stream, sizeof(float));
+            Property->Type = AK_FBX__PROPERTY_TYPE_F32;
+            Property->Data.F32 = *(float*)AK_FBX__Stream_Consume(Stream, sizeof(float)); 
         } break;
 
         //64 bit floating point
         case 'D': {
-            double Data = *(double*)AK_FBX__Stream_Consume(Stream, sizeof(double));
+            Property->Type = AK_FBX__PROPERTY_TYPE_F64;
+            Property->Data.F64 = *(double*)AK_FBX__Stream_Consume(Stream, sizeof(double)); 
         } break;
 
         //64 bit signed integer
         case 'L': {
-            ak_fbx_s64 Data = AK_FBX__Stream_Consume64(Stream);
+            Property->Type = AK_FBX__PROPERTY_TYPE_S64;
+            Property->Data.S64 = AK_FBX__Stream_Consume64(Stream); 
         } break;
 
         //Raw binary data
         case 'R': {
-            ak_fbx__buffer Data;
-            Data.Length = AK_FBX__Stream_Consume32(Stream);
-            Data.Ptr = AK_FBX__Stream_Consume(Stream, Data.Length);
+            ak_fbx_u32 BufferLength = AK_FBX__Stream_Consume32(Stream);
+            const void* Buffer = AK_FBX__Stream_Consume(Stream, BufferLength);
+
+            Property->Type = AK_FBX__PROPERTY_TYPE_BUFFER;
+            Property->Data.Buffer = AK_FBX__Make_Buffer(Arena, Buffer, BufferLength);
         } break;
 
         case 'S': {
-            ak_fbx__string Data;
-            Data.Length = AK_FBX__Stream_Consume32(Stream);
-            Data.Str = AK_FBX__Stream_Consume(Stream, Data.Length);
+            ak_fbx_u32 StrLength = AK_FBX__Stream_Consume32(Stream);
+            const char* Str = AK_FBX__Stream_Consume(Stream, StrLength);
+
+            Property->Type = AK_FBX__PROPERTY_TYPE_STRING;
+            Property->Data.String = AK_FBX__Make_String(Arena, Str, StrLength);
         } break;
 
         //Array section
@@ -448,19 +495,89 @@ static ak_fbx_s8 AK_FBX__Binary_Read_Property(ak_fbx__stream* Stream, ak_fbx__pr
             ak_fbx_u32 ArrayLength = AK_FBX__Stream_Consume32(Stream);
             ak_fbx_u32 Encoding = AK_FBX__Stream_Consume32(Stream);
             ak_fbx_u32 CompressedLength = AK_FBX__Stream_Consume32(Stream);
+
+            ak_fbx_u32 Stride = 0;
+                            
+            switch(Type) {
+                case 'b':
+                case 'c': {
+                    Stride = 1;
+                } break;
+
+                case 'f':
+                case 'i': {
+                    Stride = 4;
+                } break;
+                
+                case 'l':
+                case 'd': {
+                    Stride = 8;
+                } break;
+
+                default: {
+                    AK_FBX_ASSERT(!"Invalid case");
+                } break;
+            }
+
+            const void* CompressedBuffer = AK_FBX__Stream_Consume(Stream, CompressedLength);
+            ak_fbx_u32 UncompressedLength = ArrayLength*Stride;
+            void* UncompressedBuffer = AK_FBX__Arena_Push(Arena, UncompressedLength);
+;
             
             if(Encoding == 0) {
                 //Normal length array
+                if(UncompressedLength != CompressedLength) {
+                    //TODO: Diagnostic and error logging
+                    return ak_fbx__false; 
+                }
+
+                AK_FBX_MEMCPY(UncompressedBuffer, CompressedBuffer, UncompressedLength);
             } else if(Encoding == 1) {
                 //GZip encoding array
-
-
+                if(!AK_FBX__Decompress_ZLib(UncompressedBuffer, UncompressedLength, CompressedBuffer, CompressedLength)) {
+                    return ak_fbx__false;
+                }
             } else {
                 //TODO: Diagnostic and error logging
                 return ak_fbx__false;
             }
 
-            AK_FBX__Stream_Skip(Stream, CompressedLength);
+            switch(Type) {
+                case 'b':
+                case 'c': {
+                    Property->Type = AK_FBX__PROPERTY_TYPE_BOOL_ARRAY;
+                    Property->Data.BoolArray.Count = ArrayLength;
+                    Property->Data.BoolArray.Ptr = (ak_fbx_s8*)UncompressedBuffer;
+                } break;
+
+                case 'f': {
+                    Property->Type = AK_FBX__PROPERTY_TYPE_F32_ARRAY;
+                    Property->Data.F32Array.Count = ArrayLength;
+                    Property->Data.F32Array.Ptr = (float*)UncompressedBuffer;
+                } break;
+
+                case 'i': {
+                    Property->Type = AK_FBX__PROPERTY_TYPE_S32_ARRAY;
+                    Property->Data.S32Array.Count = ArrayLength;
+                    Property->Data.S32Array.Ptr = (ak_fbx_s32*)UncompressedBuffer;
+                } break;
+                
+                case 'l': {
+                    Property->Type = AK_FBX__PROPERTY_TYPE_S64_ARRAY;
+                    Property->Data.S64Array.Count = ArrayLength;
+                    Property->Data.S64Array.Ptr = (ak_fbx_s64*)UncompressedBuffer;
+                } break;
+
+                case 'd': {
+                    Property->Type = AK_FBX__PROPERTY_TYPE_F64_ARRAY;
+                    Property->Data.F64Array.Count = ArrayLength;
+                    Property->Data.F64Array.Ptr = (double*)UncompressedBuffer;
+                } break;
+
+                default: {
+                    AK_FBX_ASSERT(!"Invalid case");
+                } break;
+            }
         } break;
 
         default: {
@@ -477,7 +594,7 @@ static ak_fbx_s8 AK_FBX__Binary_Read_Property(ak_fbx__stream* Stream, ak_fbx__pr
     return ak_fbx__true;
 }
 
-static ak_fbx__binary_node_status AK_FBX__Binary_Read_Node(ak_fbx__stream* Stream, ak_fbx__node* Node, ak_fbx__arena* Arena, ak_fbx_s8 Is64Bit) {
+static ak_fbx__binary_node_status AK_FBX__Binary_Read_Node(ak_fbx__stream* Stream, ak_fbx__parsing_node* Node, ak_fbx__arena* Arena, ak_fbx_s8 Is64Bit) {
     // The first word always contains the node end offset
     ak_fbx_u64 EndOffset = AK_FBX__BINARY_READ_WORD(Stream);
 
@@ -549,12 +666,12 @@ static ak_fbx__binary_node_status AK_FBX__Binary_Read_Node(ak_fbx__stream* Strea
         NestedStream.At = Stream->At;
 
         while(AK_FBX__Stream_Is_Valid(&NestedStream)) {
-            ak_fbx__node* ChildNode = AK_FBX__Arena_Push_Struct(Arena, ak_fbx__node);
+            ak_fbx__parsing_node* ChildNode = AK_FBX__Arena_Push_Struct(Arena, ak_fbx__parsing_node);
             if(AK_FBX__Binary_Read_Node(&NestedStream, ChildNode, Arena, Is64Bit) == AK_FBX__BINARY_NODE_STATUS_ERROR) {
                 return AK_FBX__BINARY_NODE_STATUS_ERROR;
             }
 
-            AK_FBX__Node_Add_Child(Node, ChildNode);
+            AK_FBX__Parsing_Node_Add_Child(Node, ChildNode);
         }
 
         Stream->At = NestedStream.At;
@@ -584,33 +701,20 @@ static ak_fbx__binary_node_status AK_FBX__Binary_Read_Node(ak_fbx__stream* Strea
 
 #undef AK_FBX__BINARY_READ_WORD
 
-struct ak_fbx_scene {
-    void*         UserData;
-    ak_fbx__arena Arena;
-};
-
-AKFBXDEF ak_fbx_scene* AK_FBX_Load_From_Memory(const void* Buffer, ak_fbx_u64 Length, void* UserData) {
-    ak_fbx__arena Arena = AK_FBX__Arena_Create(UserData);
-    ak_fbx_scene* Scene = AK_FBX__Arena_Push_Struct(&Arena, ak_fbx_scene);
-
-    Scene->UserData = UserData;
-    Scene->Arena    = Arena;
-
+static ak_fbx__parsing_node* AK_FBX__Parse(ak_fbx__arena* Arena, const void* Buffer, ak_fbx_u64 Length) {
     ak_fbx__stream Stream;
     Stream.Stream = (const ak_fbx_u8*)Buffer;
     Stream.Length = Length;
     Stream.At = 0;
 
-    printf("Debug");
-
-    ak_fbx__node* RootNode = AK_FBX__Arena_Push_Struct(&Scene->Arena, ak_fbx__node);
-    RootNode->Name = AK_FBX__Make_String(&Scene->Arena, "Root", 4);
+    ak_fbx__parsing_node* RootNode = AK_FBX__Arena_Push_Struct(Arena, ak_fbx__parsing_node);
+    RootNode->Name = AK_FBX__Make_String(Arena, "Root", 4);
 
     if(AK_FBX_STRNCMP((const char*)AK_FBX__Stream_Peek(&Stream), "Kaydara FBX Binary", 18) == 0) {
         AK_FBX__Stream_Skip(&Stream, 23);
 
         if(!AK_FBX__Stream_Is_Valid(&Stream)) {
-            //TODO: Diagnostic and error logging. Free resources
+            //TODO: Diagnostic and error logging.
             return ak_fbx__nullptr;
         }
         
@@ -618,11 +722,11 @@ AKFBXDEF ak_fbx_scene* AK_FBX_Load_From_Memory(const void* Buffer, ak_fbx_u64 Le
         ak_fbx_s8 Is64Bit = Version >= 7500;
 
         while(AK_FBX__Stream_Is_Valid(&Stream)) {
-            ak_fbx__node* ChildNode = AK_FBX__Arena_Push_Struct(&Arena, ak_fbx__node);
-            ak_fbx__binary_node_status Status = AK_FBX__Binary_Read_Node(&Stream, ChildNode, &Scene->Arena, Is64Bit);
+            ak_fbx__parsing_node* ChildNode = AK_FBX__Arena_Push_Struct(Arena, ak_fbx__parsing_node);
+            ak_fbx__binary_node_status Status = AK_FBX__Binary_Read_Node(&Stream, ChildNode, Arena, Is64Bit);
 
             if(Status == AK_FBX__BINARY_NODE_STATUS_ERROR) {
-                //TODO: Diagnostic and error logging. Free resources
+                //TODO: Diagnostic and error logging.
                 return ak_fbx__nullptr;
             }
 
@@ -630,13 +734,37 @@ AKFBXDEF ak_fbx_scene* AK_FBX_Load_From_Memory(const void* Buffer, ak_fbx_u64 Le
                 break;
             }
 
-            AK_FBX__Node_Add_Child(RootNode, ChildNode);
+            AK_FBX__Parsing_Node_Add_Child(RootNode, ChildNode);
         }
 
     } else {
         //FBX file is not binary
         AK_FBX_ASSERT(!"Not Implemented!");
     }
+
+    return RootNode;
+}
+
+struct ak_fbx_scene {
+    void*         UserData;
+    ak_fbx__arena Arena;
+};
+
+AKFBXDEF ak_fbx_scene* AK_FBX_Load_From_Memory(const void* Buffer, ak_fbx_u64 Length, void* UserData) {
+    ak_fbx_scene* Scene = ak_fbx__nullptr;
+    
+    ak_fbx__arena TempArena = AK_FBX__Arena_Create(UserData);
+    ak_fbx__parsing_node* RootParsingNode = AK_FBX__Parse(&TempArena, Buffer, Length);
+    if(RootParsingNode) {
+        DEBUG_Print_Node_Name(RootParsingNode, 0);
+
+        ak_fbx__arena Arena = AK_FBX__Arena_Create(UserData);
+        Scene = AK_FBX__Arena_Push_Struct(&Arena, ak_fbx_scene);
+
+        Scene->UserData = UserData;
+        Scene->Arena = Arena;
+    }
+    AK_FBX__Arena_Delete(&TempArena);
 
     return Scene;
 }
@@ -691,6 +819,412 @@ AKFBXDEF void AK_FBX_Free(ak_fbx_scene* Scene) {
 //If AK_FBX_NO_ERROR_MESSAGE is defined, this returns null
 AKFBXDEF const char* AK_FBX_Error_Message(void) {
     return AK_FBX__G_Error_Message;
+}
+
+//~STB Image ZLib implementation (should never allocate memory!)
+
+#define AK_FBX__STBI_ASSERT AK_FBX_ASSERT
+#define ak_fbx__stbi__err(x, y) AK_FBX__Error(x, y)
+
+#define AK_FBX__STBI_MEMSET AK_FBX_MEMSET
+#define AK_FBX__STBI_MEMCPY AK_FBX_MEMCPY 
+
+typedef ak_fbx_u8  ak_fbx__stbi_uc;
+typedef ak_fbx_u16 ak_fbx__stbi__uint16;
+typedef ak_fbx_u32 ak_fbx__stbi__uint32;
+
+// fast-way is faster to check than jpeg huffman, but slow way is slower
+#define AK_FBX__STBI__ZFAST_BITS  9 // accelerate all cases in default tables
+#define AK_FBX__STBI__ZFAST_MASK  ((1 << AK_FBX__STBI__ZFAST_BITS) - 1)
+#define AK_FBX__STBI__ZNSYMS 288 // number of symbols in literal/length alphabet
+
+// zlib-style huffman encoding
+// (jpegs packs from left, zlib from right, so can't share code)
+typedef struct
+{
+   ak_fbx__stbi__uint16 fast[1 << AK_FBX__STBI__ZFAST_BITS];
+   ak_fbx__stbi__uint16 firstcode[16];
+   int maxcode[17];
+   ak_fbx__stbi__uint16 firstsymbol[16];
+   ak_fbx__stbi_uc  size[AK_FBX__STBI__ZNSYMS];
+   ak_fbx__stbi__uint16 value[AK_FBX__STBI__ZNSYMS];
+} ak_fbx__stbi__zhuffman;
+
+static int ak_fbx__stbi__bitreverse16(int n)
+{
+  n = ((n & 0xAAAA) >>  1) | ((n & 0x5555) << 1);
+  n = ((n & 0xCCCC) >>  2) | ((n & 0x3333) << 2);
+  n = ((n & 0xF0F0) >>  4) | ((n & 0x0F0F) << 4);
+  n = ((n & 0xFF00) >>  8) | ((n & 0x00FF) << 8);
+  return n;
+}
+
+static int ak_fbx__stbi__bit_reverse(int v, int bits)
+{
+   AK_FBX__STBI_ASSERT(bits <= 16);
+   // to bit reverse n bits, reverse 16 and shift
+   // e.g. 11 bits, bit reverse and shift away 5
+   return ak_fbx__stbi__bitreverse16(v) >> (16-bits);
+}
+
+static int ak_fbx__stbi__zbuild_huffman(ak_fbx__stbi__zhuffman *z, const ak_fbx__stbi_uc *sizelist, int num)
+{
+   int i,k=0;
+   int code, next_code[16], sizes[17];
+
+   // DEFLATE spec for generating codes
+   AK_FBX__STBI_MEMSET(sizes, 0, sizeof(sizes));
+   AK_FBX__STBI_MEMSET(z->fast, 0, sizeof(z->fast));
+   for (i=0; i < num; ++i)
+      ++sizes[sizelist[i]];
+   sizes[0] = 0;
+   for (i=1; i < 16; ++i)
+      if (sizes[i] > (1 << i))
+         return ak_fbx__stbi__err("bad sizes", "Corrupt ZLIB");
+   code = 0;
+   for (i=1; i < 16; ++i) {
+      next_code[i] = code;
+      z->firstcode[i] = (ak_fbx__stbi__uint16) code;
+      z->firstsymbol[i] = (ak_fbx__stbi__uint16) k;
+      code = (code + sizes[i]);
+      if (sizes[i])
+         if (code-1 >= (1 << i)) return ak_fbx__stbi__err("bad codelengths","Corrupt ZLIB");
+      z->maxcode[i] = code << (16-i); // preshift for inner loop
+      code <<= 1;
+      k += sizes[i];
+   }
+   z->maxcode[16] = 0x10000; // sentinel
+   for (i=0; i < num; ++i) {
+      int s = sizelist[i];
+      if (s) {
+         int c = next_code[s] - z->firstcode[s] + z->firstsymbol[s];
+         ak_fbx__stbi__uint16 fastv = (ak_fbx__stbi__uint16) ((s << 9) | i);
+         z->size [c] = (ak_fbx__stbi_uc     ) s;
+         z->value[c] = (ak_fbx__stbi__uint16) i;
+         if (s <= AK_FBX__STBI__ZFAST_BITS) {
+            int j = ak_fbx__stbi__bit_reverse(next_code[s],s);
+            while (j < (1 << AK_FBX__STBI__ZFAST_BITS)) {
+               z->fast[j] = fastv;
+               j += (1 << s);
+            }
+         }
+         ++next_code[s];
+      }
+   }
+   return 1;
+}
+
+// zlib-from-memory implementation for PNG reading
+//    because PNG allows splitting the zlib stream arbitrarily,
+//    and it's annoying structurally to have PNG call ZLIB call PNG,
+//    we require PNG read all the IDATs and combine them into a single
+//    memory buffer
+
+typedef struct
+{
+   ak_fbx__stbi_uc *zbuffer, *zbuffer_end;
+   int num_bits;
+   ak_fbx__stbi__uint32 code_buffer;
+
+   char *zout;
+   char *zout_start;
+   char *zout_end;
+   int   z_expandable;
+
+   ak_fbx__stbi__zhuffman z_length, z_distance;
+} ak_fbx__stbi__zbuf;
+
+static int ak_fbx__stbi__zeof(ak_fbx__stbi__zbuf *z)
+{
+   return (z->zbuffer >= z->zbuffer_end);
+}
+
+static ak_fbx__stbi_uc ak_fbx__stbi__zget8(ak_fbx__stbi__zbuf *z)
+{
+   return ak_fbx__stbi__zeof(z) ? 0 : *z->zbuffer++;
+}
+
+static void ak_fbx__stbi__fill_bits(ak_fbx__stbi__zbuf *z)
+{
+   do {
+      if (z->code_buffer >= (1U << z->num_bits)) {
+        z->zbuffer = z->zbuffer_end;  /* treat this as EOF so we fail. */
+        return;
+      }
+      z->code_buffer |= (unsigned int) ak_fbx__stbi__zget8(z) << z->num_bits;
+      z->num_bits += 8;
+   } while (z->num_bits <= 24);
+}
+
+static unsigned int ak_fbx__stbi__zreceive(ak_fbx__stbi__zbuf *z, int n)
+{
+   unsigned int k;
+   if (z->num_bits < n) ak_fbx__stbi__fill_bits(z);
+   k = z->code_buffer & ((1 << n) - 1);
+   z->code_buffer >>= n;
+   z->num_bits -= n;
+   return k;
+}
+
+static int ak_fbx__stbi__zhuffman_decode_slowpath(ak_fbx__stbi__zbuf *a, ak_fbx__stbi__zhuffman *z)
+{
+   int b,s,k;
+   // not resolved by fast table, so compute it the slow way
+   // use jpeg approach, which requires MSbits at top
+   k = ak_fbx__stbi__bit_reverse(a->code_buffer, 16);
+   for (s=AK_FBX__STBI__ZFAST_BITS+1; ; ++s)
+      if (k < z->maxcode[s])
+         break;
+   if (s >= 16) return -1; // invalid code!
+   // code size is s, so:
+   b = (k >> (16-s)) - z->firstcode[s] + z->firstsymbol[s];
+   if (b >= AK_FBX__STBI__ZNSYMS) return -1; // some data was corrupt somewhere!
+   if (z->size[b] != s) return -1;  // was originally an assert, but report failure instead.
+   a->code_buffer >>= s;
+   a->num_bits -= s;
+   return z->value[b];
+}
+
+static int ak_fbx__stbi__zhuffman_decode(ak_fbx__stbi__zbuf *a, ak_fbx__stbi__zhuffman *z)
+{
+   int b,s;
+   if (a->num_bits < 16) {
+      if (ak_fbx__stbi__zeof(a)) {
+         return -1;   /* report error for unexpected end of data. */
+      }
+      ak_fbx__stbi__fill_bits(a);
+   }
+   b = z->fast[a->code_buffer & AK_FBX__STBI__ZFAST_MASK];
+   if (b) {
+      s = b >> 9;
+      a->code_buffer >>= s;
+      a->num_bits -= s;
+      return b & 511;
+   }
+   return ak_fbx__stbi__zhuffman_decode_slowpath(a, z);
+}
+
+static const int ak_fbx__stbi__zlength_base[31] = {
+   3,4,5,6,7,8,9,10,11,13,
+   15,17,19,23,27,31,35,43,51,59,
+   67,83,99,115,131,163,195,227,258,0,0 };
+
+static const int ak_fbx__stbi__zlength_extra[31]=
+{ 0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0,0,0 };
+
+static const int ak_fbx__stbi__zdist_base[32] = { 1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,
+257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577,0,0};
+
+static const int ak_fbx__stbi__zdist_extra[32] =
+{ 0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13};
+
+static int ak_fbx__stbi__parse_huffman_block(ak_fbx__stbi__zbuf *a)
+{
+   char *zout = a->zout;
+   for(;;) {
+      int z = ak_fbx__stbi__zhuffman_decode(a, &a->z_length);
+      if (z < 256) {
+         if (z < 0) return ak_fbx__stbi__err("bad huffman code","Corrupt PNG"); // error in huffman codes
+         AK_FBX__STBI_ASSERT(zout < a->zout_end);
+         *zout++ = (char) z;
+      } else {
+         ak_fbx__stbi_uc *p;
+         int len,dist;
+         if (z == 256) {
+            a->zout = zout;
+            return 1;
+         }
+         if (z >= 286) return ak_fbx__stbi__err("bad huffman code","Corrupt PNG"); // per DEFLATE, length codes 286 and 287 must not appear in compressed data
+         z -= 257;
+         len = ak_fbx__stbi__zlength_base[z];
+         if (ak_fbx__stbi__zlength_extra[z]) len += ak_fbx__stbi__zreceive(a, ak_fbx__stbi__zlength_extra[z]);
+         z = ak_fbx__stbi__zhuffman_decode(a, &a->z_distance);
+         if (z < 0 || z >= 30) return ak_fbx__stbi__err("bad huffman code","Corrupt PNG"); // per DEFLATE, distance codes 30 and 31 must not appear in compressed data
+         dist = ak_fbx__stbi__zdist_base[z];
+         if (ak_fbx__stbi__zdist_extra[z]) dist += ak_fbx__stbi__zreceive(a, ak_fbx__stbi__zdist_extra[z]);
+         if (zout - a->zout_start < dist) return ak_fbx__stbi__err("bad dist","Corrupt PNG");
+         
+         AK_FBX__STBI_ASSERT(zout + len <= a->zout_end);
+         
+         p = (ak_fbx__stbi_uc *) (zout - dist);
+         if (dist == 1) { // run of one byte; common in images.
+            ak_fbx__stbi_uc v = *p;
+            if (len) { do *zout++ = v; while (--len); }
+         } else {
+            if (len) { do *zout++ = *p++; while (--len); }
+         }
+      }
+   }
+}
+
+static int ak_fbx__stbi__compute_huffman_codes(ak_fbx__stbi__zbuf *a)
+{
+   static const ak_fbx__stbi_uc length_dezigzag[19] = { 16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15 };
+   ak_fbx__stbi__zhuffman z_codelength;
+   ak_fbx__stbi_uc lencodes[286+32+137];//padding for maximum single op
+   ak_fbx__stbi_uc codelength_sizes[19];
+   int i,n;
+
+   int hlit  = ak_fbx__stbi__zreceive(a,5) + 257;
+   int hdist = ak_fbx__stbi__zreceive(a,5) + 1;
+   int hclen = ak_fbx__stbi__zreceive(a,4) + 4;
+   int ntot  = hlit + hdist;
+
+   AK_FBX__STBI_MEMSET(codelength_sizes, 0, sizeof(codelength_sizes));
+   for (i=0; i < hclen; ++i) {
+      int s = ak_fbx__stbi__zreceive(a,3);
+      codelength_sizes[length_dezigzag[i]] = (ak_fbx__stbi_uc) s;
+   }
+   if (!ak_fbx__stbi__zbuild_huffman(&z_codelength, codelength_sizes, 19)) return 0;
+
+   n = 0;
+   while (n < ntot) {
+      int c = ak_fbx__stbi__zhuffman_decode(a, &z_codelength);
+      if (c < 0 || c >= 19) return ak_fbx__stbi__err("bad codelengths", "Corrupt PNG");
+      if (c < 16)
+         lencodes[n++] = (ak_fbx__stbi_uc) c;
+      else {
+         ak_fbx__stbi_uc fill = 0;
+         if (c == 16) {
+            c = ak_fbx__stbi__zreceive(a,2)+3;
+            if (n == 0) return ak_fbx__stbi__err("bad codelengths", "Corrupt PNG");
+            fill = lencodes[n-1];
+         } else if (c == 17) {
+            c = ak_fbx__stbi__zreceive(a,3)+3;
+         } else if (c == 18) {
+            c = ak_fbx__stbi__zreceive(a,7)+11;
+         } else {
+            return ak_fbx__stbi__err("bad codelengths", "Corrupt PNG");
+         }
+         if (ntot - n < c) return ak_fbx__stbi__err("bad codelengths", "Corrupt PNG");
+         AK_FBX__STBI_MEMSET(lencodes+n, fill, c);
+         n += c;
+      }
+   }
+   if (n != ntot) return ak_fbx__stbi__err("bad codelengths","Corrupt PNG");
+   if (!ak_fbx__stbi__zbuild_huffman(&a->z_length, lencodes, hlit)) return 0;
+   if (!ak_fbx__stbi__zbuild_huffman(&a->z_distance, lencodes+hlit, hdist)) return 0;
+   return 1;
+}
+
+static int ak_fbx__stbi__parse_uncompressed_block(ak_fbx__stbi__zbuf *a)
+{
+   ak_fbx__stbi_uc header[4];
+   int len,nlen,k;
+   if (a->num_bits & 7)
+      ak_fbx__stbi__zreceive(a, a->num_bits & 7); // discard
+   // drain the bit-packed data into header
+   k = 0;
+   while (a->num_bits > 0) {
+      header[k++] = (ak_fbx__stbi_uc) (a->code_buffer & 255); // suppress MSVC run-time check
+      a->code_buffer >>= 8;
+      a->num_bits -= 8;
+   }
+   if (a->num_bits < 0) return ak_fbx__stbi__err("zlib corrupt","Corrupt PNG");
+   // now fill header the normal way
+   while (k < 4)
+      header[k++] = ak_fbx__stbi__zget8(a);
+   len  = header[1] * 256 + header[0];
+   nlen = header[3] * 256 + header[2];
+   if (nlen != (len ^ 0xffff)) return ak_fbx__stbi__err("zlib corrupt","Corrupt PNG");
+   if (a->zbuffer + len > a->zbuffer_end) return ak_fbx__stbi__err("read past buffer","Corrupt PNG");
+   AK_FBX__STBI_ASSERT(a->zout + len <= a->zout_end);
+   AK_FBX__STBI_MEMCPY(a->zout, a->zbuffer, len);
+   a->zbuffer += len;
+   a->zout += len;
+   return 1;
+}
+
+static int ak_fbx__stbi__parse_zlib_header(ak_fbx__stbi__zbuf *a)
+{
+   int cmf   = ak_fbx__stbi__zget8(a);
+   int cm    = cmf & 15;
+   /* int cinfo = cmf >> 4; */
+   int flg   = ak_fbx__stbi__zget8(a);
+   if (ak_fbx__stbi__zeof(a)) return ak_fbx__stbi__err("bad zlib header","Corrupt PNG"); // zlib spec
+   if ((cmf*256+flg) % 31 != 0) return ak_fbx__stbi__err("bad zlib header","Corrupt PNG"); // zlib spec
+   if (flg & 32) return ak_fbx__stbi__err("no preset dict","Corrupt PNG"); // preset dictionary not allowed in png
+   if (cm != 8) return ak_fbx__stbi__err("bad compression","Corrupt PNG"); // DEFLATE required for png
+   // window = 1 << (8 + cinfo)... but who cares, we fully buffer output
+   return 1;
+}
+
+static const ak_fbx__stbi_uc ak_fbx__stbi__zdefault_length[AK_FBX__STBI__ZNSYMS] =
+{
+   8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8, 8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,
+   8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8, 8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,
+   8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8, 8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,
+   8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8, 8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,
+   8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8, 9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,
+   9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9, 9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,
+   9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9, 9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,
+   9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9, 9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,
+   7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7, 7,7,7,7,7,7,7,7,8,8,8,8,8,8,8,8
+};
+static const ak_fbx__stbi_uc ak_fbx__stbi__zdefault_distance[32] =
+{
+   5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5
+};
+/*
+Init algorithm:
+{
+   int i;   // use <= to match clearly with spec
+   for (i=0; i <= 143; ++i)     stbi__zdefault_length[i]   = 8;
+   for (   ; i <= 255; ++i)     stbi__zdefault_length[i]   = 9;
+   for (   ; i <= 279; ++i)     stbi__zdefault_length[i]   = 7;
+   for (   ; i <= 287; ++i)     stbi__zdefault_length[i]   = 8;
+
+   for (i=0; i <=  31; ++i)     stbi__zdefault_distance[i] = 5;
+}
+*/
+
+static int ak_fbx__stbi__parse_zlib(ak_fbx__stbi__zbuf *a, int parse_header)
+{
+   int final, type;
+   if (parse_header)
+      if (!ak_fbx__stbi__parse_zlib_header(a)) return 0;
+   a->num_bits = 0;
+   a->code_buffer = 0;
+   do {
+      final = ak_fbx__stbi__zreceive(a,1);
+      type = ak_fbx__stbi__zreceive(a,2);
+      if (type == 0) {
+         if (!ak_fbx__stbi__parse_uncompressed_block(a)) return 0;
+      } else if (type == 3) {
+         return 0;
+      } else {
+         if (type == 1) {
+            // use fixed code lengths
+            if (!ak_fbx__stbi__zbuild_huffman(&a->z_length  , ak_fbx__stbi__zdefault_length  , AK_FBX__STBI__ZNSYMS)) return 0;
+            if (!ak_fbx__stbi__zbuild_huffman(&a->z_distance, ak_fbx__stbi__zdefault_distance,  32)) return 0;
+         } else {
+            if (!ak_fbx__stbi__compute_huffman_codes(a)) return 0;
+         }
+         if (!ak_fbx__stbi__parse_huffman_block(a)) return 0;
+      }
+   } while (!final);
+   return 1;
+}
+
+static int ak_fbx__stbi__do_zlib(ak_fbx__stbi__zbuf *a, char *obuf, int olen, int exp, int parse_header)
+{
+   a->zout_start = obuf;
+   a->zout       = obuf;
+   a->zout_end   = obuf + olen;
+   a->z_expandable = exp;
+
+   return ak_fbx__stbi__parse_zlib(a, parse_header);
+}
+
+static int ak_fbx__stbi_zlib_decode_buffer(char *obuffer, int olen, char const *ibuffer, int ilen)
+{
+   ak_fbx__stbi__zbuf a;
+   a.zbuffer = (ak_fbx__stbi_uc *) ibuffer;
+   a.zbuffer_end = (ak_fbx__stbi_uc *) ibuffer + ilen;
+   if (ak_fbx__stbi__do_zlib(&a, obuffer, olen, 0, 1))
+      return (int) (a.zout - a.zout_start);
+   else
+      return -1;
 }
 
 #ifdef __cplusplus
