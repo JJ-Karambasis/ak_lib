@@ -25,7 +25,10 @@ void Free_Memory(void* Memory, void* UserData) {
 #define AK_FBX_FREE(ptr, user_data) Free_Memory(ptr, user_data)
 #include <ak_fbx.h>
 
+#pragma warning(push)
+#pragma warning(disable : 5045)
 #include "utest.h"
+#pragma warning(pop)
 
 UTEST(AK_FBX, Box) {
     allocator_stats Stats;
@@ -38,7 +41,7 @@ UTEST(AK_FBX, Box) {
     ASSERT_EQ(Stats.MemoryAllocated, 0);
 }
 
-UTEST_MAIN();
+UTEST_MAIN()
 
 #define AK_FBX_IMPLEMENTATION
 #include <ak_fbx.h>
