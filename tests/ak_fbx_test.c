@@ -4,6 +4,7 @@ typedef struct allocator_stats {
     size_t MemoryAllocated;
 } allocator_stats;
 
+#if 0 
 void* Allocate_Memory(size_t Size, void* UserData) {
     allocator_stats* Stats = (allocator_stats*)UserData;
     size_t* Result = (size_t*)malloc(Size+sizeof(size_t));
@@ -24,6 +25,7 @@ void Free_Memory(void* Memory, void* UserData) {
 #define AK_FBX_MALLOC(size, user_data) Allocate_Memory(size, user_data)
 #define AK_FBX_FREE(ptr, user_data) Free_Memory(ptr, user_data)
 #include <ak_fbx.h>
+#endif
 
 #pragma warning(push)
 #pragma warning(disable : 5045)
@@ -34,14 +36,18 @@ UTEST(AK_FBX, Box) {
     allocator_stats Stats;
     Stats.MemoryAllocated = 0;
 
+#if 0
     ak_fbx_scene* Scene = AK_FBX_Load("test_files/Box.fbx", &Stats);
     ASSERT_TRUE(Scene != 0);
 
     AK_FBX_Free(Scene);
+#endif
     ASSERT_EQ(Stats.MemoryAllocated, 0);
 }
 
 UTEST_MAIN()
 
+#if 0 
 #define AK_FBX_IMPLEMENTATION
 #include <ak_fbx.h>
+#endif

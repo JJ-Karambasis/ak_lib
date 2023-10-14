@@ -277,7 +277,7 @@ UTEST_C_FUNC __declspec(dllimport) int __stdcall QueryPerformanceFrequency(
 #endif
 #endif
 
-#define UTEST_INLINE inline
+#define UTEST_INLINE
 
 #define UTEST_INITIALIZER(f)                                                   \
   static void f(void) UTEST_ATTRIBUTE(constructor);                            \

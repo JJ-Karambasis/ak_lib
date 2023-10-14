@@ -43,10 +43,26 @@ AK_FBX__COMPILE_TIME_ASSERT(sizeof(ak_fbx_u32) == 4);
 AK_FBX__COMPILE_TIME_ASSERT(sizeof(ak_fbx_s64) == 8);
 AK_FBX__COMPILE_TIME_ASSERT(sizeof(ak_fbx_u64) == 8);
 
+typedef struct ak_fbx_string {
+    const char* Str;
+    ak_fbx_u32  Size;
+} ak_fbx_string;
+
+typedef struct ak_fbx_v3 {
+    double Data[3];
+} ak_fbx_v3;
+
+typedef struct ak_fbx_m4x3 {
+    double Data[12];
+} ak_fbx_m4x3;
+
+typedef enum ak_fbx_node_type {
+    AK_FBX_NODE_TYPE_MESH
+} ak_fbx_node_type;
+
 typedef struct ak_fbx_node {
     ak_fbx_node_type    Type;
-    const char*         Name;
-    ak_fbx_u32          NameLength;
+    ak_fbx_string       Name;
     ak_fbx_m4x3         GlobalTransform;
     ak_fbx_m4x3         LocalTransform;
     struct ak_fbx_node* Parent;
@@ -56,11 +72,13 @@ typedef struct ak_fbx_node {
     struct ak_fbx_node* NextSibling;
 } ak_fbx_node; 
 
+typedef struct ak_fbx_mesh {
+    ak_fbx_node* Node;
+    ak_fbx_u32   VertexCount;
+    ak_fbx_v3*   Vertices;
+} ak_fbx_mesh;
+
 typedef struct ak_fbx_scene {
-    u32          NodeCount;
-    u32          MeshCount;
-    ak_fbx_node* Nodes;
-    ak_fbx_mesh* Meshes;
     ak_fbx_node* RootNode;
 } ak_fbx_scene;
 
@@ -72,6 +90,8 @@ AKFBXDEF ak_fbx_scene* AK_FBX_Load_From_File(FILE* File, void* UserData);
 #endif
 
 AKFBXDEF void AK_FBX_Free(ak_fbx_scene* Scene);
+
+AKFBXDEF ak_fbx_mesh* AK_FBX_Get_Mesh(ak_fbx_node* Node);
 
 //If thread local storage is supported, this is thread safe
 //If thread local storage is not supported, this is not thread safe
@@ -771,14 +791,21 @@ static ak_fbx__parsing_node* AK_FBX__Parse(ak_fbx__arena* Arena, const void* Buf
     return RootNode;
 }
 
-struct ak_fbx_scene_impl {
+typedef struct ak_fbx_scene__impl {
     ak_fbx_scene  Base;
     void*         UserData;
     ak_fbx__arena Arena;
-};
+} ak_fbx_scene__impl;
+
+struct ak_fbx_node__impl {
+    ak_fbx_node Node;
+    union {
+        ak_fbx_mesh Mesh;
+    } Data;
+} ak_fbx_node__impl;
 
 AKFBXDEF ak_fbx_scene* AK_FBX_Load_From_Memory(const void* Buffer, ak_fbx_u64 Length, void* UserData) {
-    ak_fbx_scene_impl* Scene = ak_fbx__nullptr;
+    ak_fbx_scene__impl* Scene = ak_fbx__nullptr;
     
     ak_fbx__arena TempArena = AK_FBX__Arena_Create(UserData);
     ak_fbx__parsing_node* RootParsingNode = AK_FBX__Parse(&TempArena, Buffer, Length);
@@ -789,14 +816,16 @@ AKFBXDEF ak_fbx_scene* AK_FBX_Load_From_Memory(const void* Buffer, ak_fbx_u64 Le
         Scene->UserData = UserData;
         Scene->Arena = Arena;
 
-        
-
         ak_fbx__parsing_node_array NodeStack = AK_FBX__Parsing_Node_Array_Create(UserData, 1024);
 
         //Iterate first to get the scene data
         AK_FBX__Parsing_Node_Array_Add(&NodeStack, RootParsingNode);
         while(!AK_FBX__Parsing_Node_Array_Empty(&NodeStack)) {
             ak_fbx__parsing_node* Node = AK_FBX__Parsing_Node_Array_Pop(&NodeStack);
+
+            if(AK_FBX_STRNCMP(Node->Name.Str, "Definitions", Node->Name.Length) == 0) {
+                ak_fbx__definitions Definitions = AK_FBX__Parse_Definitions(&NodeStack);
+            }
 
 #pragma warning(disable : 4189)
             if(AK_FBX_STRNCMP(Node->Name.Str, "Model", Node->Name.Length) == 0) {
