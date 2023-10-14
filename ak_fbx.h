@@ -43,7 +43,26 @@ AK_FBX__COMPILE_TIME_ASSERT(sizeof(ak_fbx_u32) == 4);
 AK_FBX__COMPILE_TIME_ASSERT(sizeof(ak_fbx_s64) == 8);
 AK_FBX__COMPILE_TIME_ASSERT(sizeof(ak_fbx_u64) == 8);
 
-typedef struct ak_fbx_scene ak_fbx_scene;
+typedef struct ak_fbx_node {
+    ak_fbx_node_type    Type;
+    const char*         Name;
+    ak_fbx_u32          NameLength;
+    ak_fbx_m4x3         GlobalTransform;
+    ak_fbx_m4x3         LocalTransform;
+    struct ak_fbx_node* Parent;
+    struct ak_fbx_node* FirstChild;
+    struct ak_fbx_node* LastChild;
+    struct ak_fbx_node* PrevSibling;
+    struct ak_fbx_node* NextSibling;
+} ak_fbx_node; 
+
+typedef struct ak_fbx_scene {
+    u32          NodeCount;
+    u32          MeshCount;
+    ak_fbx_node* Nodes;
+    ak_fbx_mesh* Meshes;
+    ak_fbx_node* RootNode;
+} ak_fbx_scene;
 
 AKFBXDEF ak_fbx_scene* AK_FBX_Load_From_Memory(const void* Buffer, ak_fbx_u64 Length, void* UserData);
 
@@ -383,7 +402,8 @@ typedef struct ak_fbx__property_array {
 } ak_fbx__property_array;
 
 typedef struct ak_fbx__parsing_node {
-    ak_fbx__string Name;
+    ak_fbx__string         Name;
+    ak_fbx__property_array Properties;
 
     struct ak_fbx__parsing_node* Parent;
     struct ak_fbx__parsing_node* FirstChild;
@@ -396,7 +416,11 @@ void DEBUG_Print_Node_Name(ak_fbx__parsing_node* Node, int Level) {
     for(int LevelIndex = 0; LevelIndex < Level; LevelIndex++) {
         printf("\t");
     }
-    printf("%.*s\n", Node->Name.Length, Node->Name.Str);
+    printf("%.*s: ", Node->Name.Length, Node->Name.Str);
+    for(ak_fbx_u32 Index = 0; Index < Node->Properties.Count; Index++) {
+        
+    }
+    
     for(ak_fbx__parsing_node* Child = Node->FirstChild; Child; Child = Child->NextSibling) {
         DEBUG_Print_Node_Name(Child, Level+1);
     }
@@ -649,6 +673,8 @@ static ak_fbx__binary_node_status AK_FBX__Binary_Read_Node(ak_fbx__stream* Strea
         return AK_FBX__BINARY_NODE_STATUS_ERROR;
     }
 
+    Node->Properties = Properties;
+
     AK_FBX__Stream_Skip(Stream, PropertyLength);
 
     //At the end of each nested node, there is a null record to indicate that subnodes exist.
@@ -745,28 +771,70 @@ static ak_fbx__parsing_node* AK_FBX__Parse(ak_fbx__arena* Arena, const void* Buf
     return RootNode;
 }
 
-struct ak_fbx_scene {
+struct ak_fbx_scene_impl {
+    ak_fbx_scene  Base;
     void*         UserData;
     ak_fbx__arena Arena;
 };
 
 AKFBXDEF ak_fbx_scene* AK_FBX_Load_From_Memory(const void* Buffer, ak_fbx_u64 Length, void* UserData) {
-    ak_fbx_scene* Scene = ak_fbx__nullptr;
+    ak_fbx_scene_impl* Scene = ak_fbx__nullptr;
     
     ak_fbx__arena TempArena = AK_FBX__Arena_Create(UserData);
     ak_fbx__parsing_node* RootParsingNode = AK_FBX__Parse(&TempArena, Buffer, Length);
     if(RootParsingNode) {
-        DEBUG_Print_Node_Name(RootParsingNode, 0);
-
         ak_fbx__arena Arena = AK_FBX__Arena_Create(UserData);
-        Scene = AK_FBX__Arena_Push_Struct(&Arena, ak_fbx_scene);
+        Scene = AK_FBX__Arena_Push_Struct(&Arena, ak_fbx_scene_impl);
 
         Scene->UserData = UserData;
         Scene->Arena = Arena;
+
+        
+
+        ak_fbx__parsing_node_array NodeStack = AK_FBX__Parsing_Node_Array_Create(UserData, 1024);
+
+        //Iterate first to get the scene data
+        AK_FBX__Parsing_Node_Array_Add(&NodeStack, RootParsingNode);
+        while(!AK_FBX__Parsing_Node_Array_Empty(&NodeStack)) {
+            ak_fbx__parsing_node* Node = AK_FBX__Parsing_Node_Array_Pop(&NodeStack);
+
+#pragma warning(disable : 4189)
+            if(AK_FBX_STRNCMP(Node->Name.Str, "Model", Node->Name.Length) == 0) {
+                //Model nodes start have an ID property, a name property, and a type property
+                const ak_fbx__property* IDProperty = &Node->Properties.Ptr[0];
+
+                AK_FBX__ID_Index_Map_Add(&NodeIndexMap, IDProperty->Data.S64, NodeList.Count);
+                AK_FBX__Parsing_Node_Array_Add(&NodeList, Node);
+            }
+
+            if(AK_FBX_STRNCMP(Node->Name.Str, "Geometry", Node->Name.Length) == 0) {
+                //Geometry nodes start have an ID property, a name property, and a type property
+                const ak_fbx__property* IDProperty = &Node->Properties.Ptr[0];
+
+                AK_FBX__ID_Index_Map_Add(&MeshIndexMap, IDProperty->Data.S64, MeshList.Count);
+                AK_FBX__Parsing_Node_Array_Add(&MeshList, Node);
+            }
+
+            for(ak_fbx__parsing_node* Child = Node->FirstChild; Child; Child = Child->NextSibling) {
+                AK_FBX__Parsing_Node_Array_Add(&NodeStack, Child);
+            }
+        }
+
+        //After we get the scene node data write them into the scene
+        Scene->Base.NodeCount = NodeList.Count+1; //Plus 1 for the root node
+        Scene->Base.MeshCount = MeshList.Count;
+
+        Scene->Base.Nodes = AK_FBX__Arena_Push_Array(&Scene->Arena, Scene->Base.NodeCount, ak_fbx_node);
+        Scene->Base.Meshes = AK_FBX__Arena_Push_Array(&Scene->Arena, Scene->Base.MeshCount, ak_fbx_mesh);
+
+        Scene->Base.Nodes[0] = AK_FBX__Make_Root_Node();
+
+        //Iterate next to get the connections
+        AK_FBX__Parsing_Node_Array_Add(&NodeStack, RootParsingNode);
     }
     AK_FBX__Arena_Delete(&TempArena);
 
-    return Scene;
+    return &Scene->Base;
 }
 
 #ifndef AK_FBX_NO_STDIO
