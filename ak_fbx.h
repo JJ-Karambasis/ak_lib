@@ -1,6 +1,10 @@
 #ifndef AK_FBX_H
 #define AK_FBX_H
 
+
+#pragma warning(push)
+#pragma warning(disable : 4820)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -56,12 +60,7 @@ typedef struct ak_fbx_m4x3 {
     double Data[12];
 } ak_fbx_m4x3;
 
-typedef enum ak_fbx_node_type {
-    AK_FBX_NODE_TYPE_MESH
-} ak_fbx_node_type;
-
 typedef struct ak_fbx_node {
-    ak_fbx_node_type    Type;
     ak_fbx_string       Name;
     ak_fbx_m4x3         GlobalTransform;
     ak_fbx_m4x3         LocalTransform;
@@ -71,12 +70,6 @@ typedef struct ak_fbx_node {
     struct ak_fbx_node* PrevSibling;
     struct ak_fbx_node* NextSibling;
 } ak_fbx_node; 
-
-typedef struct ak_fbx_mesh {
-    ak_fbx_node* Node;
-    ak_fbx_u32   VertexCount;
-    ak_fbx_v3*   Vertices;
-} ak_fbx_mesh;
 
 typedef struct ak_fbx_scene {
     ak_fbx_node* RootNode;
@@ -91,16 +84,19 @@ AKFBXDEF ak_fbx_scene* AK_FBX_Load_From_File(FILE* File, void* UserData);
 
 AKFBXDEF void AK_FBX_Free(ak_fbx_scene* Scene);
 
-AKFBXDEF ak_fbx_mesh* AK_FBX_Get_Mesh(ak_fbx_node* Node);
-
 //If thread local storage is supported, this is thread safe
 //If thread local storage is not supported, this is not thread safe
 //If AK_FBX_NO_ERROR_MESSAGE is defined, this returns null
 AKFBXDEF const char* AK_FBX_Error_Message(void);
 
+//Math util functions
+AKFBXDEF void AK_FBX_M4x3_Identity(ak_fbx_m4x3* M);
+
 #ifdef __cplusplus
 }
 #endif
+
+#pragma warning(pop)
 
 #endif //AK_FBX_H
 
@@ -339,19 +335,14 @@ static ak_fbx__buffer AK_FBX__Make_Buffer(ak_fbx__arena* Arena, const void* Buff
     return Result;
 }
 
-typedef struct ak_fbx__string {
-    ak_fbx_u32 Length;
-    const char* Str;
-} ak_fbx__string;
-
-static ak_fbx__string AK_FBX__Make_String(ak_fbx__arena* Arena, const char* Str, ak_fbx_u32 StrLength) {
+static ak_fbx_string AK_FBX__Make_String(ak_fbx__arena* Arena, const char* Str, ak_fbx_u32 StrLength) {
     char* Buffer = (char*)AK_FBX__Arena_Push(Arena, (StrLength+1)*sizeof(char));
     Buffer[StrLength] = 0;
     AK_FBX_STRNCPY(Buffer, Str, StrLength);
 
-    ak_fbx__string Result;
+    ak_fbx_string Result;
     Result.Str = Buffer;
-    Result.Length = StrLength;
+    Result.Size = StrLength;
     return Result;
 }
 
@@ -407,7 +398,7 @@ typedef struct ak_fbx__property {
         double             F64;
         ak_fbx_s64         S64;
         ak_fbx__buffer     Buffer;
-        ak_fbx__string     String;
+        ak_fbx_string      String;
         ak_fbx__bool_array BoolArray;
         ak_fbx__s32_array  S32Array;
         ak_fbx__f32_array  F32Array;
@@ -422,7 +413,7 @@ typedef struct ak_fbx__property_array {
 } ak_fbx__property_array;
 
 typedef struct ak_fbx__parsing_node {
-    ak_fbx__string         Name;
+    ak_fbx_string          Name;
     ak_fbx__property_array Properties;
 
     struct ak_fbx__parsing_node* Parent;
@@ -436,7 +427,7 @@ void DEBUG_Print_Node_Name(ak_fbx__parsing_node* Node, int Level) {
     for(int LevelIndex = 0; LevelIndex < Level; LevelIndex++) {
         printf("\t");
     }
-    printf("%.*s: ", Node->Name.Length, Node->Name.Str);
+    printf("%.*s: ", Node->Name.Size, Node->Name.Str);
     for(ak_fbx_u32 Index = 0; Index < Node->Properties.Count; Index++) {
         
     }
@@ -449,6 +440,26 @@ void DEBUG_Print_Node_Name(ak_fbx__parsing_node* Node, int Level) {
 static void AK_FBX__Parsing_Node_Add_Child(ak_fbx__parsing_node* Parent, ak_fbx__parsing_node* Child) {
     Child->Parent = Parent;
     AK_FBX__DLL_Push_Back_NP(Parent->FirstChild, Parent->LastChild, Child, NextSibling, PrevSibling);
+}
+
+static const ak_fbx__property* AK_FBX__Get_Property(ak_fbx__parsing_node* Node, ak_fbx_u64 PropertyIndex) {
+    AK_FBX_ASSERT(PropertyIndex < Node->Properties.Count);
+    return &Node->Properties.Ptr[PropertyIndex];
+}
+
+static ak_fbx_s32 AK_FBX__Property_Get_S32(const ak_fbx__property* Property) {
+    AK_FBX_ASSERT(Property->Type == AK_FBX__PROPERTY_TYPE_S32);
+    return Property->Data.S32;
+}
+
+static ak_fbx_s64 AK_FBX__Property_Get_S64(const ak_fbx__property* Property) {
+    AK_FBX_ASSERT(Property->Type == AK_FBX__PROPERTY_TYPE_S64);
+    return Property->Data.S64;
+}
+
+static ak_fbx_string AK_FBX__Property_Get_Str(const ak_fbx__property* Property) {
+    AK_FBX_ASSERT(Property->Type == AK_FBX__PROPERTY_TYPE_STRING);
+    return Property->Data.String;
 }
 
 typedef enum ak_fbx__binary_node_status {
@@ -797,12 +808,415 @@ typedef struct ak_fbx_scene__impl {
     ak_fbx__arena Arena;
 } ak_fbx_scene__impl;
 
-struct ak_fbx_node__impl {
+typedef struct ak_fbx_node__impl {
     ak_fbx_node Node;
-    union {
-        ak_fbx_mesh Mesh;
-    } Data;
 } ak_fbx_node__impl;
+
+static void AK_FBX__Node_Add_Child(ak_fbx_node__impl* Parent, ak_fbx_node__impl* Child) {
+    Child->Node.Parent = &Parent->Node;   
+    AK_FBX__DLL_Push_Back_NP(Parent->Node.FirstChild, Parent->Node.LastChild, &Child->Node, NextSibling, PrevSibling);
+}
+
+typedef struct ak_fbx__parsing_node_array {
+    void* UserData;
+    ak_fbx__parsing_node** Ptr;
+    ak_fbx_u32             Capacity;
+    ak_fbx_u32             Count;
+} ak_fbx__parsing_node_array;
+
+static ak_fbx__parsing_node_array AK_FBX__Parsing_Node_Array_Create(void* UserData, ak_fbx_u32 Count) {
+    ak_fbx__parsing_node_array Result;
+    Result.UserData = UserData;
+    Result.Capacity = Count;
+    Result.Count    = 0;
+
+    Result.Ptr = (ak_fbx__parsing_node**)AK_FBX_MALLOC(Count*sizeof(ak_fbx__parsing_node*), UserData);
+    return Result;
+}
+
+static void AK_FBX__Parsing_Node_Array_Delete(ak_fbx__parsing_node_array* Array) {
+    if(Array->Ptr) {
+        AK_FBX_FREE(Array->Ptr, Array->UserData);
+        Array->Capacity = 0;
+        Array->Count = 0;
+        Array->Ptr = ak_fbx__nullptr;
+        Array->UserData = ak_fbx__nullptr;
+    }
+}
+
+static void AK_FBX__Parsing_Node_Array_Add(ak_fbx__parsing_node_array* Array, ak_fbx__parsing_node* Node) {
+    if(Array->Count == Array->Capacity) {
+        ak_fbx_u32 NewCapacity = Array->Capacity*2;
+        ak_fbx__parsing_node** NewNodes = (ak_fbx__parsing_node**)AK_FBX_MALLOC(NewCapacity*sizeof(ak_fbx__parsing_node*), Array->UserData);
+
+        AK_FBX_MEMCPY(NewNodes, Array->Ptr, Array->Capacity*sizeof(ak_fbx__parsing_node*));
+
+        AK_FBX_FREE(Array->Ptr, Array->UserData);
+        Array->Ptr = NewNodes;
+        Array->Capacity = NewCapacity;
+    }
+
+    Array->Ptr[Array->Count++] = Node;
+}
+
+static ak_fbx_s8 AK_FBX__Parsing_Node_Array_Empty(ak_fbx__parsing_node_array* Array) {
+    return !Array->Ptr || !Array->Count;
+}
+
+static ak_fbx__parsing_node* AK_FBX__Parsing_Node_Array_Pop(ak_fbx__parsing_node_array* Array) {
+    AK_FBX_ASSERT(Array->Count > 0);
+    ak_fbx__parsing_node* Result = Array->Ptr[--Array->Count];
+    return Result;
+}
+
+static ak_fbx_u32 AK_FBX__Hash_U64(ak_fbx_u64 Key) {
+    Key = (~Key) + (Key << 18); // Key = (Key << 18) - Key - 1;
+    Key = Key ^ (Key >> 31);
+    Key = Key * 21; // Key = (Key + (Key << 2)) + (Key << 4);
+    Key = Key ^ (Key >> 11);
+    Key = Key + (Key << 6);
+    Key = Key ^ (Key >> 22);
+    return (ak_fbx_u32)Key;
+}
+
+typedef struct ak_fbx__hash_slot {
+    ak_fbx_u32 Hash;
+    ak_fbx_u32 ItemIndex;
+    ak_fbx_u32 BaseCount;
+} ak_fbx__hash_slot;
+
+static ak_fbx_u32 AK_FBX__Find_Free_Slot(ak_fbx__hash_slot* Slots, ak_fbx_u32 SlotMask, ak_fbx_u32 BaseSlot) {
+    ak_fbx_u32 BaseCount = Slots[BaseSlot].BaseCount;
+    ak_fbx_u32 Slot = BaseSlot;
+    ak_fbx_u32 FirstFree = Slot;
+    while (BaseCount) 
+    {
+        if (Slots[Slot].ItemIndex == (ak_fbx_u32)-1 && Slots[FirstFree].ItemIndex != (ak_fbx_u32)-1) FirstFree = Slot;
+        ak_fbx_u32 SlotHash = Slots[Slot].Hash;
+        ak_fbx_u32 SlotBase = (SlotHash & SlotMask);
+        if (SlotBase == BaseSlot) 
+            --BaseCount;
+        Slot = (Slot + 1) & SlotMask;
+    }
+    
+    Slot = FirstFree;
+    while (Slots[Slot].ItemIndex != (ak_fbx_u32)-1) 
+        Slot = (Slot + 1) & SlotMask;
+
+    return Slot;
+}
+
+typedef struct ak_fbx__id_ptr_map {
+    ak_fbx__hash_slot* Slots;
+    ak_fbx_s64*        IDs;
+    void**             Ptrs;
+    ak_fbx_u32         SlotCapacity;
+    ak_fbx_u32         ItemCapacity;
+    ak_fbx_u32         Count;
+} ak_fbx__id_ptr_map;
+
+static ak_fbx_u32 AK_FBX__Ceil_Pow2(ak_fbx_u32 V) {
+    V--;
+    V |= V >> 1;
+    V |= V >> 2;
+    V |= V >> 4;
+    V |= V >> 8;
+    V |= V >> 16;
+    V++;
+    return V;
+}
+
+static ak_fbx__id_ptr_map AK_FBX__Empty_ID_Ptr_Map(void) {
+    ak_fbx__id_ptr_map Result;
+    Result.Slots = ak_fbx__nullptr;
+    Result.IDs = ak_fbx__nullptr;
+    Result.Ptrs = ak_fbx__nullptr;
+    Result.SlotCapacity = 0;
+    Result.ItemCapacity = 0;
+    Result.Count = 0;
+    return Result;
+}
+
+static ak_fbx__id_ptr_map AK_FBX__ID_Ptr_Map_Create(ak_fbx__arena* Arena, ak_fbx_u32 Count) {
+    ak_fbx__id_ptr_map Result = AK_FBX__Empty_ID_Ptr_Map();
+
+    ak_fbx_u32 ItemCapacity = Count;
+    ak_fbx_u32 SlotCapacity = AK_FBX__Ceil_Pow2(ItemCapacity*2);
+
+    size_t AllocationSize = ItemCapacity*(sizeof(ak_fbx_s64)+sizeof(void*));
+    AllocationSize += SlotCapacity*sizeof(ak_fbx__hash_slot);
+
+    Result.Slots = (ak_fbx__hash_slot*)AK_FBX__Arena_Push(Arena, AllocationSize);
+    Result.IDs = (ak_fbx_s64*)(Result.Slots + SlotCapacity);
+    Result.Ptrs = (void**)(Result.IDs + ItemCapacity);
+    Result.SlotCapacity = SlotCapacity;
+    Result.ItemCapacity = ItemCapacity;
+    Result.Count = 0;
+
+    for(ak_fbx_u32 SlotIndex = 0; SlotIndex < SlotCapacity; SlotIndex++) {
+        ak_fbx__hash_slot Slot;
+        Slot.Hash = 0;
+        Slot.ItemIndex = (ak_fbx_u32)-1;
+        Slot.BaseCount = 0;
+
+        Result.Slots[SlotIndex] = Slot;
+    }
+
+    return Result;
+}
+
+static ak_fbx_u32 AK_FBX__ID_Ptr_Map_Find_Slot(ak_fbx__id_ptr_map* Map, ak_fbx_s64 Key, ak_fbx_u32 Hash) {
+    ak_fbx_u32 SlotMask = Map->SlotCapacity-1;
+    ak_fbx_u32 BaseSlot = (Hash & SlotMask);
+    ak_fbx_u32 BaseCount = Map->Slots[BaseSlot].BaseCount;
+    ak_fbx_u32 Slot = BaseSlot;
+    
+    while (BaseCount > 0) {
+        if (Map->Slots[Slot].ItemIndex != (ak_fbx_u32)-1) {
+            ak_fbx_u32 SlotHash = Map->Slots[Slot].Hash;
+            ak_fbx_u32 SlotBase = (SlotHash & SlotMask);
+            if (SlotBase == BaseSlot) {
+                AK_FBX_ASSERT(BaseCount > 0);
+                BaseCount--;
+                            
+                if (SlotHash == Hash) { 
+                    if(Key == Map->IDs[Map->Slots[Slot].ItemIndex]) {
+                        return Slot;
+                    }
+                }
+            }
+        }
+        
+        Slot = (Slot + 1) & SlotMask;
+    }
+    
+    return (ak_fbx_u32)-1;
+}
+
+static void AK_FBX__ID_Ptr_Map_Add(ak_fbx__id_ptr_map* Map, ak_fbx_s64 Key, void* Ptr) {
+    ak_fbx_u32 Hash = AK_FBX__Hash_U64(Key);
+    AK_FBX_ASSERT(AK_FBX__ID_Ptr_Map_Find_Slot(Map, Key, Hash) == -1);
+
+    ak_fbx_u32 SlotMask = Map->SlotCapacity-1;
+    ak_fbx_u32 BaseSlot = (Hash & SlotMask);
+    ak_fbx_u32 Slot = AK_FBX__Find_Free_Slot(Map->Slots, SlotMask, BaseSlot);
+    
+    AK_FBX_ASSERT(Map->Count < Map->ItemCapacity);
+    AK_FBX_ASSERT(Map->Slots[Slot].ItemIndex == (ak_fbx_u32)-1 && (Hash & SlotMask) == BaseSlot);
+    
+    Map->Slots[Slot].Hash = Hash;
+    Map->Slots[Slot].ItemIndex = Map->Count;
+    Map->Slots[BaseSlot].BaseCount++;
+    
+    Map->IDs[Map->Count] = Key;
+    Map->Ptrs[Map->Count] = Ptr;
+
+    Map->Count++;
+}
+
+static void* AK_FBX__ID_Ptr_Map_Get(ak_fbx__id_ptr_map* Map, ak_fbx_s64 Key) {
+    ak_fbx_u32 Hash = AK_FBX__Hash_U64(Key);
+    ak_fbx_u32 Slot = AK_FBX__ID_Ptr_Map_Find_Slot(Map, Key, Hash);
+    if(Slot == (ak_fbx_u32)-1) {
+        return ak_fbx__nullptr;
+    }
+    return Map->Ptrs[Map->Slots[Slot].ItemIndex];
+}
+
+typedef struct ak_fbx__definitions {
+    ak_fbx_u32 ModelCount;
+} ak_fbx__definitions;
+
+typedef enum ak_fbx__object_type {
+    AK_FBX__OBJECT_TYPE_NODE,
+    AK_FBX__OBJECT_TYPE_COUNT
+} ak_fbx__object_type;
+
+typedef struct ak_fbx__object {
+    ak_fbx__object_type Type;
+    void* Ptr;
+} ak_fbx__object;
+
+typedef struct ak_fbx__objects {
+    ak_fbx_u32         NodeCount;
+    ak_fbx_node__impl* Nodes;
+    ak_fbx__id_ptr_map ObjectIDMap;
+} ak_fbx__objects;
+
+static ak_fbx_s8 AK_FBX__Validate_Objects(ak_fbx__objects* Objects) {
+    if(!Objects->Nodes) {
+        //TODO: Diagnostic and error logging
+        return ak_fbx__false;
+    }
+
+    return ak_fbx__true;
+}
+
+static ak_fbx_s32 AK_FBX__Parse_Count(ak_fbx__parsing_node* ParsingNode) {
+    for(ak_fbx__parsing_node* Child = ParsingNode->FirstChild; Child; Child = Child->NextSibling) {
+        if(AK_FBX_STRNCMP(Child->Name.Str, "Count", Child->Name.Size) == 0) {
+            ak_fbx_s32 Count = AK_FBX__Property_Get_S32(AK_FBX__Get_Property(Child, 0));
+            return Count;
+        }
+    }
+    AK_FBX_ASSERT(ak_fbx__false);
+    return -1;
+}
+
+static void AK_FBX__Parse_Definitions(ak_fbx__definitions* Definitions, ak_fbx__parsing_node* DefintionNode) {
+    //TODO: Might need to parse the version and determine if different version have different formats
+
+    for(ak_fbx__parsing_node* ParsingNode = DefintionNode->FirstChild; ParsingNode; ParsingNode = ParsingNode->NextSibling) {
+        if(AK_FBX_STRNCMP(ParsingNode->Name.Str, "ObjectType", ParsingNode->Name.Size) == 0) {
+            ak_fbx_string TypeStr = AK_FBX__Property_Get_Str(AK_FBX__Get_Property(ParsingNode, 0));
+            if(AK_FBX_STRNCMP(TypeStr.Str, "Model", TypeStr.Size) == 0) {
+                Definitions->ModelCount = (ak_fbx_u32)AK_FBX__Parse_Count(ParsingNode);
+            }
+        }
+    }
+}
+
+static void AK_FBX__Parse_Model(ak_fbx__objects* Objects, ak_fbx__parsing_node* ModelNode, ak_fbx__arena* TempArena, ak_fbx__arena* Arena) {
+    //TODO: Might need to parse the version and determine if different version have different formats
+
+    ak_fbx_node__impl* NodeImpl = &Objects->Nodes[Objects->NodeCount++];
+    ak_fbx_node* Node = &NodeImpl->Node;
+    
+    //Model nodes start have an ID property, a name property, and a type property
+    ak_fbx_s64 ID = AK_FBX__Property_Get_S64(AK_FBX__Get_Property(ModelNode, 0));
+    ak_fbx_string String = AK_FBX__Property_Get_Str(AK_FBX__Get_Property(ModelNode, 1));
+
+    Node->Name = AK_FBX__Make_String(Arena, String.Str, String.Size);
+    
+    //Always set the global to the identity matrix. We will update it later after parsing the scene
+    AK_FBX_M4x3_Identity(&Node->GlobalTransform);
+
+    ak_fbx__object* Object = AK_FBX__Arena_Push_Struct(TempArena, ak_fbx__object);
+    Object->Type = AK_FBX__OBJECT_TYPE_NODE;
+    Object->Ptr = Node;
+    AK_FBX__ID_Ptr_Map_Add(&Objects->ObjectIDMap, ID, Object);
+}
+
+static void AK_FBX__Parse_Objects(ak_fbx__objects* Objects, ak_fbx__parsing_node* ObjectNode, ak_fbx__arena* TempArena, ak_fbx__arena* Arena) {
+    for(ak_fbx__parsing_node* ParsingNode = ObjectNode->FirstChild; ParsingNode; ParsingNode = ParsingNode->NextSibling) {
+        if(AK_FBX_STRNCMP(ParsingNode->Name.Str, "Model", ParsingNode->Name.Size) == 0) {
+            AK_FBX_ASSERT(Objects->Nodes);
+            AK_FBX__Parse_Model(Objects, ParsingNode, TempArena, Arena);
+        }
+    }
+}
+
+#define AK_FBX__CONNECT_OBJECTS_FUNC(name) void name(ak_fbx__object* ObjectA, ak_fbx__object* ObjectB)
+typedef AK_FBX__CONNECT_OBJECTS_FUNC(ak_fbx__connect_object_funcs);
+
+static AK_FBX__CONNECT_OBJECTS_FUNC(AK_FBX__Connect_Nodes) {
+    //Parent child connection. NodeB is parent, NodeA is child
+    ak_fbx_node__impl* NodeA = (ak_fbx_node__impl*)ObjectA->Ptr;
+    ak_fbx_node__impl* NodeB = (ak_fbx_node__impl*)ObjectB->Ptr;
+    AK_FBX__Node_Add_Child(NodeB, NodeA);
+}
+
+static ak_fbx__connect_object_funcs* AK_FBX__Connect_Objects_Funcs[AK_FBX__OBJECT_TYPE_COUNT][AK_FBX__OBJECT_TYPE_COUNT] = {
+    {AK_FBX__Connect_Nodes}
+};
+
+#pragma warning(disable : 4100)
+static void AK_FBX__Parse_Connections(ak_fbx__parsing_node* ConnectionNode, ak_fbx__objects* Objects) {
+    for(ak_fbx__parsing_node* ParsingNode = ConnectionNode->FirstChild; ParsingNode; ParsingNode = ParsingNode->NextSibling) {
+        //ak_fbx_string ConnectionType = AK_FBX__Property_Get_Str(AK_FBX__Get_Property(ParsingNode, 0));
+        ak_fbx_s64 AID = AK_FBX__Property_Get_S64(AK_FBX__Get_Property(ParsingNode, 1));
+        ak_fbx_s64 BID = AK_FBX__Property_Get_S64(AK_FBX__Get_Property(ParsingNode, 2));
+
+        ak_fbx__object* ObjectA = AK_FBX__ID_Ptr_Map_Get(&Objects->ObjectIDMap, AID);
+        ak_fbx__object* ObjectB = AK_FBX__ID_Ptr_Map_Get(&Objects->ObjectIDMap, BID);
+        if(ObjectA && ObjectB) {
+            AK_FBX__Connect_Objects_Funcs[ObjectA->Type][ObjectB->Type](ObjectA, ObjectB);
+        }
+    }
+}
+
+static void AK_FBX__Get_Root_Node_ID(ak_fbx__parsing_node* ParsingNode, ak_fbx_s64* RootNodeID) {
+    for(ak_fbx__parsing_node* Child = ParsingNode->FirstChild; Child; Child = Child->NextSibling) {
+        if(AK_FBX_STRNCMP(Child->Name.Str, "RootNode", Child->Name.Size) == 0) {
+            *RootNodeID = AK_FBX__Property_Get_S64(AK_FBX__Get_Property(Child, 0));
+            return;
+        }
+    }
+}
+
+static ak_fbx_s8 AK_FBX__Parse_Scene(ak_fbx_scene__impl* Scene, ak_fbx__parsing_node* RootParsingNode, ak_fbx__arena* TempArena) {
+    ak_fbx__objects Objects;
+    AK_FBX_MEMSET(&Objects, 0, sizeof(ak_fbx__objects));
+
+    ak_fbx__definitions Definitions;
+    AK_FBX_MEMSET(&Definitions, 0, sizeof(ak_fbx__definitions));
+
+    ak_fbx_s64 RootNodeID = -1;
+
+    //Iterate first to get the scene data
+    for(ak_fbx__parsing_node* ParsingNode = RootParsingNode->FirstChild; ParsingNode; ParsingNode = ParsingNode->NextSibling) {
+        
+        if(AK_FBX_STRNCMP(ParsingNode->Name.Str, "Documents", ParsingNode->Name.Size) == 0) {
+            for(ak_fbx__parsing_node* ChildNode = ParsingNode->FirstChild; ChildNode; ChildNode = ChildNode->NextSibling) {
+                if(AK_FBX_STRNCMP(ChildNode->Name.Str, "Document", ChildNode->Name.Size) == 0) {
+                    AK_FBX__Get_Root_Node_ID(ChildNode, &RootNodeID);
+                }
+            }
+        }
+        
+        if(AK_FBX_STRNCMP(ParsingNode->Name.Str, "Definitions", ParsingNode->Name.Size) == 0) {
+            if(RootNodeID == -1) {
+                //TODO: Diagnostic and error logging
+                return ak_fbx__false;
+            }
+
+            AK_FBX__Parse_Definitions(&Definitions, ParsingNode);
+
+            //Plus one for the root node
+            ak_fbx_u32 ModelCount = Definitions.ModelCount+1;
+            Objects.Nodes = AK_FBX__Arena_Push_Array(&Scene->Arena, ModelCount, ak_fbx_node__impl);
+            
+            ak_fbx_u32 ObjectCount = ModelCount;
+            Objects.ObjectIDMap = AK_FBX__ID_Ptr_Map_Create(TempArena, ObjectCount);
+
+            ak_fbx_node__impl* RootNode = &Objects.Nodes[Objects.NodeCount++];
+            AK_FBX_MEMSET(RootNode, 0, sizeof(ak_fbx_node__impl));
+
+            RootNode->Node.Name = AK_FBX__Make_String(&Scene->Arena, "RootNode", 8);
+            AK_FBX_M4x3_Identity(&RootNode->Node.GlobalTransform);
+            AK_FBX_M4x3_Identity(&RootNode->Node.LocalTransform);
+
+            ak_fbx__object* RootNodeObject = AK_FBX__Arena_Push_Struct(TempArena, ak_fbx__object);
+            RootNodeObject->Type = AK_FBX__OBJECT_TYPE_NODE;
+            RootNodeObject->Ptr = RootNode;
+
+            AK_FBX__ID_Ptr_Map_Add(&Objects.ObjectIDMap, RootNodeID, RootNodeObject);
+
+            Scene->Base.RootNode = &RootNode->Node;
+        }
+
+        if(AK_FBX_STRNCMP(ParsingNode->Name.Str, "Objects", ParsingNode->Name.Size) == 0) {
+            if(!AK_FBX__Validate_Objects(&Objects)) {
+                return ak_fbx__false;
+            }
+
+            AK_FBX__Parse_Objects(&Objects, ParsingNode, TempArena, &Scene->Arena);
+        }
+
+        if(AK_FBX_STRNCMP(ParsingNode->Name.Str, "Connections", ParsingNode->Name.Size) == 0) {
+            
+            //Minus one for the root node
+            if((Objects.NodeCount-1) != Definitions.ModelCount) {
+                //TODO: Diagnostic and error logging
+                return ak_fbx__false;
+            }
+
+            AK_FBX__Parse_Connections(ParsingNode, &Objects);
+        }
+    }
+
+    return ak_fbx__true;
+}
 
 AKFBXDEF ak_fbx_scene* AK_FBX_Load_From_Memory(const void* Buffer, ak_fbx_u64 Length, void* UserData) {
     ak_fbx_scene__impl* Scene = ak_fbx__nullptr;
@@ -811,55 +1225,14 @@ AKFBXDEF ak_fbx_scene* AK_FBX_Load_From_Memory(const void* Buffer, ak_fbx_u64 Le
     ak_fbx__parsing_node* RootParsingNode = AK_FBX__Parse(&TempArena, Buffer, Length);
     if(RootParsingNode) {
         ak_fbx__arena Arena = AK_FBX__Arena_Create(UserData);
-        Scene = AK_FBX__Arena_Push_Struct(&Arena, ak_fbx_scene_impl);
-
-        Scene->UserData = UserData;
+        Scene = AK_FBX__Arena_Push_Struct(&Arena, ak_fbx_scene__impl); 
         Scene->Arena = Arena;
+        Scene->UserData = UserData;
 
-        ak_fbx__parsing_node_array NodeStack = AK_FBX__Parsing_Node_Array_Create(UserData, 1024);
-
-        //Iterate first to get the scene data
-        AK_FBX__Parsing_Node_Array_Add(&NodeStack, RootParsingNode);
-        while(!AK_FBX__Parsing_Node_Array_Empty(&NodeStack)) {
-            ak_fbx__parsing_node* Node = AK_FBX__Parsing_Node_Array_Pop(&NodeStack);
-
-            if(AK_FBX_STRNCMP(Node->Name.Str, "Definitions", Node->Name.Length) == 0) {
-                ak_fbx__definitions Definitions = AK_FBX__Parse_Definitions(&NodeStack);
-            }
-
-#pragma warning(disable : 4189)
-            if(AK_FBX_STRNCMP(Node->Name.Str, "Model", Node->Name.Length) == 0) {
-                //Model nodes start have an ID property, a name property, and a type property
-                const ak_fbx__property* IDProperty = &Node->Properties.Ptr[0];
-
-                AK_FBX__ID_Index_Map_Add(&NodeIndexMap, IDProperty->Data.S64, NodeList.Count);
-                AK_FBX__Parsing_Node_Array_Add(&NodeList, Node);
-            }
-
-            if(AK_FBX_STRNCMP(Node->Name.Str, "Geometry", Node->Name.Length) == 0) {
-                //Geometry nodes start have an ID property, a name property, and a type property
-                const ak_fbx__property* IDProperty = &Node->Properties.Ptr[0];
-
-                AK_FBX__ID_Index_Map_Add(&MeshIndexMap, IDProperty->Data.S64, MeshList.Count);
-                AK_FBX__Parsing_Node_Array_Add(&MeshList, Node);
-            }
-
-            for(ak_fbx__parsing_node* Child = Node->FirstChild; Child; Child = Child->NextSibling) {
-                AK_FBX__Parsing_Node_Array_Add(&NodeStack, Child);
-            }
+        if(!AK_FBX__Parse_Scene(Scene, RootParsingNode, &TempArena)) {
+            AK_FBX__Arena_Delete(&Scene->Arena);
+            Scene = ak_fbx__nullptr;
         }
-
-        //After we get the scene node data write them into the scene
-        Scene->Base.NodeCount = NodeList.Count+1; //Plus 1 for the root node
-        Scene->Base.MeshCount = MeshList.Count;
-
-        Scene->Base.Nodes = AK_FBX__Arena_Push_Array(&Scene->Arena, Scene->Base.NodeCount, ak_fbx_node);
-        Scene->Base.Meshes = AK_FBX__Arena_Push_Array(&Scene->Arena, Scene->Base.MeshCount, ak_fbx_mesh);
-
-        Scene->Base.Nodes[0] = AK_FBX__Make_Root_Node();
-
-        //Iterate next to get the connections
-        AK_FBX__Parsing_Node_Array_Add(&NodeStack, RootParsingNode);
     }
     AK_FBX__Arena_Delete(&TempArena);
 
@@ -906,7 +1279,8 @@ AKFBXDEF ak_fbx_scene* AK_FBX_Load_From_File(FILE* File, void* UserData) {
 
 AKFBXDEF void AK_FBX_Free(ak_fbx_scene* Scene) {
     if(Scene) {
-        ak_fbx__arena* Arena = &Scene->Arena;
+        ak_fbx_scene__impl* SceneImpl = (ak_fbx_scene__impl*)Scene;
+        ak_fbx__arena* Arena = &SceneImpl->Arena;
         AK_FBX__Arena_Delete(Arena);
     }
 }
@@ -916,6 +1290,14 @@ AKFBXDEF void AK_FBX_Free(ak_fbx_scene* Scene) {
 //If AK_FBX_NO_ERROR_MESSAGE is defined, this returns null
 AKFBXDEF const char* AK_FBX_Error_Message(void) {
     return AK_FBX__G_Error_Message;
+}
+
+//~Math utility functions
+AKFBXDEF void AK_FBX_M4x3_Identity(ak_fbx_m4x3* M) {
+    AK_FBX_MEMSET(M->Data, 0, sizeof(M->Data));
+    M->Data[0] = 1.0;
+    M->Data[4] = 1.0;
+    M->Data[8] = 1.0;
 }
 
 //~STB Image ZLib implementation (should never allocate memory!)
