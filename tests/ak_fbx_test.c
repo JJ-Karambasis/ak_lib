@@ -85,6 +85,17 @@ UTEST(AK_FBX, Box) {
     ASSERT_EQ(Stats.MemoryAllocated, 0);
 }
 
+UTEST(AK_FBX, Geometry) {
+    allocator_stats Stats;
+    Stats.MemoryAllocated = 0;
+
+    ak_fbx_scene* Scene = AK_FBX_Load("test_files/Geometry.fbx", &Stats);
+    ASSERT_TRUE(Scene != 0);
+
+    AK_FBX_Free(Scene);
+    ASSERT_EQ(Stats.MemoryAllocated, 0);
+}
+
 UTEST_MAIN()
 
 #define AK_FBX_IMPLEMENTATION

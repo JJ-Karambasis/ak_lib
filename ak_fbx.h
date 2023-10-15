@@ -1145,6 +1145,8 @@ static void AK_FBX__Get_Root_Node_ID(ak_fbx__parsing_node* ParsingNode, ak_fbx_s
 }
 
 static ak_fbx_s8 AK_FBX__Parse_Scene(ak_fbx_scene__impl* Scene, ak_fbx__parsing_node* RootParsingNode, ak_fbx__arena* TempArena) {
+    DEBUG_Print_Node_Name(RootParsingNode, 0);
+    
     ak_fbx__objects Objects;
     AK_FBX_MEMSET(&Objects, 0, sizeof(ak_fbx__objects));
 
