@@ -90,6 +90,8 @@ AKFBXDEF void AK_FBX_Free(ak_fbx_scene* Scene);
 AKFBXDEF const char* AK_FBX_Error_Message(void);
 
 //Math util functions
+AKFBXDEF void AK_FBX_V3_Zero(ak_fbx_v3* V);
+AKFBXDEF void AK_FBX_V3(ak_fbx_v3* V, double x, double y, double z);
 AKFBXDEF void AK_FBX_M4x3_Identity(ak_fbx_m4x3* M);
 
 #ifdef __cplusplus
@@ -142,6 +144,18 @@ AKFBXDEF void AK_FBX_M4x3_Identity(ak_fbx_m4x3* M);
 #define AK_FBX_MEMCPY(dst, src, length) memcpy(dst, src, length)
 #endif
 
+#if !defined(AK_FBX_SIN) || !defined(AK_FBX_COS)
+#include <math.h>
+#endif
+
+#if !defined(AK_FBX_SIN)
+#define AK_FBX_SIN(angle) sin(angle)
+#endif
+
+#if !defined(AK_FBX_COS)
+#define AK_FBX_COS(angle) cos(angle)
+#endif
+
 #ifndef AK_FBX_ASSERT
 #include <assert.h>
 #define AK_FBX_ASSERT(x) assert(x)
@@ -160,6 +174,8 @@ extern "C" {
 #define ak_fbx__nullptr 0
 #endif
 
+//0.01745329251 is PI/180
+#define AK_FBX__To_Radians(degrees) ((degrees)*0.01745329251)
 
 #define AK_FBX__SLL_Push_Back(First, Last, Node) (!First ? (First = Last = Node) : (Last->Next = Node, Last = Node))
 #define AK_FBX__DLL_Push_Back_NP(First, Last, Node, Next, Prev) (!(First) ? ((First) = (Last) = (Node)) : ((Node)->Prev = (Last), (Last)->Next = (Node), (Last) = (Node)))
@@ -184,6 +200,67 @@ enum {
 #else
    #define AK_FBX__Error(x,y)  AK_FBX__Error(x)
 #endif
+
+typedef struct ak_fbx__m3 {
+    double Data[9];
+} ak_fbx__m3;
+
+static void AK_FBX__M3_Identity(ak_fbx__m3* M) {
+    AK_FBX_MEMSET(M, 0, sizeof(ak_fbx__m3));
+    M->Data[0] = 1;
+    M->Data[4] = 1;
+    M->Data[8] = 1;
+}
+
+static void AK_FBX__M3_RotX(ak_fbx__m3* M, double Pitch) {
+    AK_FBX__M3_Identity(M);
+
+    double s = AK_FBX_SIN(Pitch);
+    double c = AK_FBX_COS(Pitch);
+
+    M->Data[4] =  c;
+    M->Data[5] =  s;
+    M->Data[7] = -s;
+    M->Data[8] =  c;
+}
+
+static void AK_FBX__M3_RotY(ak_fbx__m3* M, double Yaw) {
+    AK_FBX__M3_Identity(M);
+
+    double s = AK_FBX_SIN(Yaw);
+    double c = AK_FBX_COS(Yaw);
+
+    M->Data[0] =  c;
+    M->Data[2] = -s;
+    M->Data[6] =  s;
+    M->Data[8] =  c;
+}
+
+static void AK_FBX__M3_RotZ(ak_fbx__m3* M, double Roll) {
+    AK_FBX__M3_Identity(M);
+
+    double s = AK_FBX_SIN(Roll);
+    double c = AK_FBX_COS(Roll);
+
+    M->Data[0] =  c;
+    M->Data[1] =  s;
+    M->Data[3] = -s;
+    M->Data[4] =  c;
+}
+
+static void AK_FBX__M3_Mul(ak_fbx__m3* Result, const ak_fbx__m3* A, const ak_fbx__m3* B) {
+    Result->Data[0] = A->Data[0]*B->Data[0] + A->Data[1]*B->Data[3] + A->Data[2]*B->Data[6];
+    Result->Data[1] = A->Data[0]*B->Data[1] + A->Data[1]*B->Data[4] + A->Data[2]*B->Data[7];
+    Result->Data[2] = A->Data[0]*B->Data[2] + A->Data[1]*B->Data[5] + A->Data[2]*B->Data[8];
+
+    Result->Data[3] = A->Data[3]*B->Data[0] + A->Data[4]*B->Data[3] + A->Data[5]*B->Data[6];
+    Result->Data[4] = A->Data[3]*B->Data[1] + A->Data[4]*B->Data[4] + A->Data[5]*B->Data[7];
+    Result->Data[5] = A->Data[3]*B->Data[2] + A->Data[4]*B->Data[5] + A->Data[5]*B->Data[8];
+
+    Result->Data[6] = A->Data[6]*B->Data[0] + A->Data[7]*B->Data[3] + A->Data[8]*B->Data[6];
+    Result->Data[7] = A->Data[6]*B->Data[1] + A->Data[7]*B->Data[4] + A->Data[8]*B->Data[7];
+    Result->Data[8] = A->Data[6]*B->Data[2] + A->Data[7]*B->Data[5] + A->Data[8]*B->Data[8];
+}
 
 typedef struct ak_fbx__arena_block {
     ak_fbx_u8* Bytes;
@@ -423,15 +500,106 @@ typedef struct ak_fbx__parsing_node {
     struct ak_fbx__parsing_node* NextSibling;
 } ak_fbx__parsing_node;
 
+void DEBUG_Print_Property(const ak_fbx__property* Property) {
+    switch(Property->Type) {
+
+        case AK_FBX__PROPERTY_TYPE_BOOL: {
+            if(Property->Data.Bool) {
+                printf("true");
+            } else {
+                printf("false");
+            }
+        } break;
+        
+        case AK_FBX__PROPERTY_TYPE_S16: {
+            printf("%d", Property->Data.S16);
+        } break;
+
+        case AK_FBX__PROPERTY_TYPE_S32: {
+            printf("%d", Property->Data.S32);
+        } break;
+        
+        case AK_FBX__PROPERTY_TYPE_F32: {
+            printf("%f", Property->Data.F32);
+        } break;
+
+        case AK_FBX__PROPERTY_TYPE_F64: {
+            printf("%f", Property->Data.F64);
+        } break;
+
+        case AK_FBX__PROPERTY_TYPE_S64: {
+            printf("%lld", Property->Data.S64);
+        } break;
+
+        case AK_FBX__PROPERTY_TYPE_BUFFER: {
+            fwrite(Property->Data.Buffer.Ptr, 1, Property->Data.Buffer.Length, stdout);
+        } break;
+
+        case AK_FBX__PROPERTY_TYPE_STRING: {
+            printf("%.*s", Property->Data.String.Size, Property->Data.String.Str);
+        } break;
+
+        case AK_FBX__PROPERTY_TYPE_BOOL_ARRAY: {
+            for(ak_fbx_u32 i = 0; i < Property->Data.BoolArray.Count; i++) {
+                if(Property->Data.BoolArray.Ptr[i]) {
+                    printf("true");
+                } else {
+                    printf("false");
+                }
+
+                if(i != Property->Data.BoolArray.Count-1) 
+                    printf(", ");  
+            }
+        } break;
+
+        case AK_FBX__PROPERTY_TYPE_S32_ARRAY: {
+            for(ak_fbx_u32 i = 0; i < Property->Data.S32Array.Count; i++) {
+                printf("%d", Property->Data.S32Array.Ptr[i]);
+                if(i != Property->Data.S32Array.Count-1) 
+                    printf(", ");  
+            }
+        } break;
+
+        case AK_FBX__PROPERTY_TYPE_F32_ARRAY: {
+            for(ak_fbx_u32 i = 0; i < Property->Data.F32Array.Count; i++) {
+                printf("%f", Property->Data.F32Array.Ptr[i]);
+                if(i != Property->Data.F32Array.Count-1) 
+                    printf(", ");  
+            }
+        } break;
+
+        case AK_FBX__PROPERTY_TYPE_S64_ARRAY: {
+            for(ak_fbx_u32 i = 0; i < Property->Data.S64Array.Count; i++) {
+                printf("%lld", Property->Data.S64Array.Ptr[i]);
+                if(i != Property->Data.S64Array.Count-1) 
+                    printf(", ");  
+            }
+        } break;
+
+        case AK_FBX__PROPERTY_TYPE_F64_ARRAY: {
+            for(ak_fbx_u32 i = 0; i < Property->Data.F64Array.Count; i++) {
+                printf("%f", Property->Data.F64Array.Ptr[i]);
+                if(i != Property->Data.F64Array.Count-1) 
+                    printf(", ");  
+            }
+        } break;
+    }
+}
+
 void DEBUG_Print_Node_Name(ak_fbx__parsing_node* Node, int Level) {
     for(int LevelIndex = 0; LevelIndex < Level; LevelIndex++) {
         printf("\t");
     }
-    printf("%.*s: ", Node->Name.Size, Node->Name.Str);
-    for(ak_fbx_u32 Index = 0; Index < Node->Properties.Count; Index++) {
-        
-    }
     
+    printf("%.*s: ", Node->Name.Size, Node->Name.Str);
+    
+    for(ak_fbx_u32 PropertyIndex = 0; PropertyIndex < Node->Properties.Count; PropertyIndex++) {
+        DEBUG_Print_Property(&Node->Properties.Ptr[PropertyIndex]);
+        if(PropertyIndex != Node->Properties.Count-1)
+            printf(", ");   
+    }
+
+    printf("\n");
     for(ak_fbx__parsing_node* Child = Node->FirstChild; Child; Child = Child->NextSibling) {
         DEBUG_Print_Node_Name(Child, Level+1);
     }
@@ -455,6 +623,11 @@ static ak_fbx_s32 AK_FBX__Property_Get_S32(const ak_fbx__property* Property) {
 static ak_fbx_s64 AK_FBX__Property_Get_S64(const ak_fbx__property* Property) {
     AK_FBX_ASSERT(Property->Type == AK_FBX__PROPERTY_TYPE_S64);
     return Property->Data.S64;
+}
+
+static double AK_FBX__Property_Get_F64(const ak_fbx__property* Property) {
+    AK_FBX_ASSERT(Property->Type == AK_FBX__PROPERTY_TYPE_F64);
+    return Property->Data.F64;
 }
 
 static ak_fbx_string AK_FBX__Property_Get_Str(const ak_fbx__property* Property) {
@@ -1076,6 +1249,8 @@ static void AK_FBX__Parse_Definitions(ak_fbx__definitions* Definitions, ak_fbx__
     }
 }
 
+#pragma warning(disable : 4189)
+
 static void AK_FBX__Parse_Model(ak_fbx__objects* Objects, ak_fbx__parsing_node* ModelNode, ak_fbx__arena* TempArena, ak_fbx__arena* Arena) {
     //TODO: Might need to parse the version and determine if different version have different formats
 
@@ -1091,17 +1266,87 @@ static void AK_FBX__Parse_Model(ak_fbx__objects* Objects, ak_fbx__parsing_node* 
     //Always set the global to the identity matrix. We will update it later after parsing the scene
     AK_FBX_M4x3_Identity(&Node->GlobalTransform);
 
+    ak_fbx_v3 LclTranslation; AK_FBX_V3_Zero(&LclTranslation);
+    ak_fbx_v3 LclRotation; AK_FBX_V3_Zero(&LclRotation);
+    ak_fbx_v3 LclScale; AK_FBX_V3(&LclScale, 1.0, 1.0, 1.0);
+
+    for(ak_fbx__parsing_node* ChildNode = ModelNode->FirstChild; ChildNode; ChildNode = ChildNode->NextSibling) {
+        //TODO: Might need to parse the version and determine if different version have different formats
+
+        //Find the properties
+        if(AK_FBX_STRNCMP(ChildNode->Name.Str, "Properties70", ChildNode->Name.Size) == 0) {
+            ak_fbx__parsing_node* PropertiesNode = ChildNode;
+
+            for(ak_fbx__parsing_node* PropertyNode = PropertiesNode->FirstChild; PropertyNode; PropertyNode = PropertyNode->NextSibling) {
+                ak_fbx_string PropertyName = AK_FBX__Property_Get_Str(AK_FBX__Get_Property(PropertyNode, 0));
+
+                if(AK_FBX_STRNCMP(PropertyName.Str, "Lcl Translation", PropertyName.Size) == 0) {
+                    LclTranslation.Data[0] = AK_FBX__Property_Get_F64(AK_FBX__Get_Property(PropertyNode, 4));
+                    LclTranslation.Data[1] = AK_FBX__Property_Get_F64(AK_FBX__Get_Property(PropertyNode, 5));
+                    LclTranslation.Data[2] = AK_FBX__Property_Get_F64(AK_FBX__Get_Property(PropertyNode, 6));
+                }
+
+                if(AK_FBX_STRNCMP(PropertyName.Str, "Lcl Scaling", PropertyName.Size) == 0) {
+                    LclScale.Data[0] = AK_FBX__Property_Get_F64(AK_FBX__Get_Property(PropertyNode, 4));
+                    LclScale.Data[1] = AK_FBX__Property_Get_F64(AK_FBX__Get_Property(PropertyNode, 5));
+                    LclScale.Data[2] = AK_FBX__Property_Get_F64(AK_FBX__Get_Property(PropertyNode, 6));
+                }
+
+                if(AK_FBX_STRNCMP(PropertyName.Str, "Lcl Rotation", PropertyName.Size) == 0) {
+                    LclRotation.Data[0] = AK_FBX__Property_Get_F64(AK_FBX__Get_Property(PropertyNode, 4));
+                    LclRotation.Data[1] = AK_FBX__Property_Get_F64(AK_FBX__Get_Property(PropertyNode, 5));
+                    LclRotation.Data[2] = AK_FBX__Property_Get_F64(AK_FBX__Get_Property(PropertyNode, 6));
+                }
+            }
+        }
+    }
+
+    ak_fbx__m3 Pitch; AK_FBX__M3_RotX(&Pitch, AK_FBX__To_Radians(LclRotation.Data[0]));
+    ak_fbx__m3 Yaw; AK_FBX__M3_RotY(&Yaw, AK_FBX__To_Radians(LclRotation.Data[1]));
+    ak_fbx__m3 Roll; AK_FBX__M3_RotZ(&Roll, AK_FBX__To_Radians(LclRotation.Data[2]));
+
+    ak_fbx__m3 TempOrientation;
+    ak_fbx__m3 Orientation;
+    AK_FBX__M3_Mul(&TempOrientation, &Pitch, &Yaw);
+    AK_FBX__M3_Mul(&Orientation, &Roll, &TempOrientation);
+
+    Node->LocalTransform.Data[0]  = Orientation.Data[0]*LclScale.Data[0];
+    Node->LocalTransform.Data[1]  = Orientation.Data[1]*LclScale.Data[0];
+    Node->LocalTransform.Data[2]  = Orientation.Data[2]*LclScale.Data[0];
+
+    Node->LocalTransform.Data[3]  = Orientation.Data[3]*LclScale.Data[1];
+    Node->LocalTransform.Data[4]  = Orientation.Data[4]*LclScale.Data[1];
+    Node->LocalTransform.Data[5]  = Orientation.Data[5]*LclScale.Data[1];
+
+    Node->LocalTransform.Data[6]  = Orientation.Data[6]*LclScale.Data[2];
+    Node->LocalTransform.Data[7]  = Orientation.Data[7]*LclScale.Data[2];
+    Node->LocalTransform.Data[8]  = Orientation.Data[8]*LclScale.Data[2];
+
+    Node->LocalTransform.Data[9]  = LclTranslation.Data[0];
+    Node->LocalTransform.Data[10] = LclTranslation.Data[1];
+    Node->LocalTransform.Data[11] = LclTranslation.Data[2];
+
     ak_fbx__object* Object = AK_FBX__Arena_Push_Struct(TempArena, ak_fbx__object);
     Object->Type = AK_FBX__OBJECT_TYPE_NODE;
     Object->Ptr = Node;
     AK_FBX__ID_Ptr_Map_Add(&Objects->ObjectIDMap, ID, Object);
 }
 
+// static void AK_FBX__Parse_Geometry(ak_fbx__objects* Objects, ak_fbx__parsing_node* GeometryNode, ak_fbx__arena* TempArena, ak_fbx__arena* Arena) {
+//     // ak_fbx_geometry__impl* GeometryImpl = &Objects->Geometry[Objects->GeometryCount++];
+//     // ak_fbx_geometry* Geometry = &GeometryImpl->Geometry;
+// }
+
 static void AK_FBX__Parse_Objects(ak_fbx__objects* Objects, ak_fbx__parsing_node* ObjectNode, ak_fbx__arena* TempArena, ak_fbx__arena* Arena) {
     for(ak_fbx__parsing_node* ParsingNode = ObjectNode->FirstChild; ParsingNode; ParsingNode = ParsingNode->NextSibling) {
         if(AK_FBX_STRNCMP(ParsingNode->Name.Str, "Model", ParsingNode->Name.Size) == 0) {
             AK_FBX_ASSERT(Objects->Nodes);
             AK_FBX__Parse_Model(Objects, ParsingNode, TempArena, Arena);
+        }
+
+        if(AK_FBX_STRNCMP(ParsingNode->Name.Str, "Geometry", ParsingNode->Name.Size) == 0) {
+            //AK_FBX_ASSERT(Objects->Geometry);
+            //AK_FBX__Parse_Geometry(Objects, ParsingNode, TempArena, Arena);
         }
     }
 }
@@ -1295,6 +1540,18 @@ AKFBXDEF const char* AK_FBX_Error_Message(void) {
 }
 
 //~Math utility functions
+AKFBXDEF void AK_FBX_V3_Zero(ak_fbx_v3* V) {
+    V->Data[0] = 0;
+    V->Data[1] = 0;
+    V->Data[2] = 0;
+}
+
+AKFBXDEF void AK_FBX_V3(ak_fbx_v3* V, double x, double y, double z) {
+    V->Data[0] = x;
+    V->Data[1] = y;
+    V->Data[2] = z;
+}
+
 AKFBXDEF void AK_FBX_M4x3_Identity(ak_fbx_m4x3* M) {
     AK_FBX_MEMSET(M->Data, 0, sizeof(M->Data));
     M->Data[0] = 1.0;
