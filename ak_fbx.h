@@ -60,6 +60,16 @@ typedef struct ak_fbx_m4x3 {
     double Data[12];
 } ak_fbx_m4x3;
 
+typedef struct ak_fbx_v3_array {
+    ak_fbx_v3* Ptr;
+    ak_fbx_u32 Count;
+} ak_fbx_v3_array;
+
+// typedef struct ak_fbx_polygons {
+//     ak_fbx_polygon_array Polygons;
+//     ak_fbx_s32_array     VertexIndices;
+// } ak_fbx_polygons;
+
 typedef struct ak_fbx_node {
     ak_fbx_string       Name;
     ak_fbx_m4x3         GlobalTransform;
@@ -69,7 +79,14 @@ typedef struct ak_fbx_node {
     struct ak_fbx_node* LastChild;
     struct ak_fbx_node* PrevSibling;
     struct ak_fbx_node* NextSibling;
-} ak_fbx_node; 
+} ak_fbx_node;
+
+// typedef struct ak_fbx_geometry {
+//     ak_fbx_node*     Node;
+//     ak_fbx_v3_array  Vertices;
+//     ak_fbx_polygons  Polygons;
+//     ak_fbx_s32_array Edges;
+// } ak_fbx_geometry;
 
 typedef struct ak_fbx_scene {
     ak_fbx_node* RootNode;
@@ -260,6 +277,24 @@ static void AK_FBX__M3_Mul(ak_fbx__m3* Result, const ak_fbx__m3* A, const ak_fbx
     Result->Data[6] = A->Data[6]*B->Data[0] + A->Data[7]*B->Data[3] + A->Data[8]*B->Data[6];
     Result->Data[7] = A->Data[6]*B->Data[1] + A->Data[7]*B->Data[4] + A->Data[8]*B->Data[7];
     Result->Data[8] = A->Data[6]*B->Data[2] + A->Data[7]*B->Data[5] + A->Data[8]*B->Data[8];
+}
+
+static void AK_FBX__M4x3_Mul(ak_fbx_m4x3* Result, const ak_fbx_m4x3* A, const ak_fbx_m4x3* B) {
+    Result->Data[0] = A->Data[0]*B->Data[0] + A->Data[1]*B->Data[3] + A->Data[2]*B->Data[6];
+    Result->Data[1] = A->Data[0]*B->Data[1] + A->Data[1]*B->Data[4] + A->Data[2]*B->Data[7];
+    Result->Data[2] = A->Data[0]*B->Data[2] + A->Data[1]*B->Data[5] + A->Data[2]*B->Data[8];
+
+    Result->Data[3] = A->Data[3]*B->Data[0] + A->Data[4]*B->Data[3] + A->Data[5]*B->Data[6];
+    Result->Data[4] = A->Data[3]*B->Data[1] + A->Data[4]*B->Data[4] + A->Data[5]*B->Data[7];
+    Result->Data[5] = A->Data[3]*B->Data[2] + A->Data[4]*B->Data[5] + A->Data[5]*B->Data[8];
+
+    Result->Data[6] = A->Data[6]*B->Data[0] + A->Data[7]*B->Data[3] + A->Data[8]*B->Data[6];
+    Result->Data[7] = A->Data[6]*B->Data[1] + A->Data[7]*B->Data[4] + A->Data[8]*B->Data[7];
+    Result->Data[8] = A->Data[6]*B->Data[2] + A->Data[7]*B->Data[5] + A->Data[8]*B->Data[8];
+
+    Result->Data[9]  = A->Data[9]*B->Data[0] + A->Data[10]*B->Data[3] + A->Data[11]*B->Data[6] + B->Data[9];
+    Result->Data[10] = A->Data[9]*B->Data[1] + A->Data[10]*B->Data[4] + A->Data[11]*B->Data[7] + B->Data[10];
+    Result->Data[11] = A->Data[9]*B->Data[2] + A->Data[10]*B->Data[5] + A->Data[11]*B->Data[8] + B->Data[11];
 }
 
 typedef struct ak_fbx__arena_block {
@@ -554,7 +589,11 @@ void DEBUG_Print_Property(const ak_fbx__property* Property) {
 
         case AK_FBX__PROPERTY_TYPE_S32_ARRAY: {
             for(ak_fbx_u32 i = 0; i < Property->Data.S32Array.Count; i++) {
-                printf("%d", Property->Data.S32Array.Ptr[i]);
+                ak_fbx_s32 Value = Property->Data.S32Array.Ptr[i];
+                if(Value < 0) {
+                    Value = -Value - 1;
+                }
+                printf("%d", Value);
                 if(i != Property->Data.S32Array.Count-1) 
                     printf(", ");  
             }
@@ -990,58 +1029,6 @@ static void AK_FBX__Node_Add_Child(ak_fbx_node__impl* Parent, ak_fbx_node__impl*
     AK_FBX__DLL_Push_Back_NP(Parent->Node.FirstChild, Parent->Node.LastChild, &Child->Node, NextSibling, PrevSibling);
 }
 
-typedef struct ak_fbx__parsing_node_array {
-    void* UserData;
-    ak_fbx__parsing_node** Ptr;
-    ak_fbx_u32             Capacity;
-    ak_fbx_u32             Count;
-} ak_fbx__parsing_node_array;
-
-static ak_fbx__parsing_node_array AK_FBX__Parsing_Node_Array_Create(void* UserData, ak_fbx_u32 Count) {
-    ak_fbx__parsing_node_array Result;
-    Result.UserData = UserData;
-    Result.Capacity = Count;
-    Result.Count    = 0;
-
-    Result.Ptr = (ak_fbx__parsing_node**)AK_FBX_MALLOC(Count*sizeof(ak_fbx__parsing_node*), UserData);
-    return Result;
-}
-
-static void AK_FBX__Parsing_Node_Array_Delete(ak_fbx__parsing_node_array* Array) {
-    if(Array->Ptr) {
-        AK_FBX_FREE(Array->Ptr, Array->UserData);
-        Array->Capacity = 0;
-        Array->Count = 0;
-        Array->Ptr = ak_fbx__nullptr;
-        Array->UserData = ak_fbx__nullptr;
-    }
-}
-
-static void AK_FBX__Parsing_Node_Array_Add(ak_fbx__parsing_node_array* Array, ak_fbx__parsing_node* Node) {
-    if(Array->Count == Array->Capacity) {
-        ak_fbx_u32 NewCapacity = Array->Capacity*2;
-        ak_fbx__parsing_node** NewNodes = (ak_fbx__parsing_node**)AK_FBX_MALLOC(NewCapacity*sizeof(ak_fbx__parsing_node*), Array->UserData);
-
-        AK_FBX_MEMCPY(NewNodes, Array->Ptr, Array->Capacity*sizeof(ak_fbx__parsing_node*));
-
-        AK_FBX_FREE(Array->Ptr, Array->UserData);
-        Array->Ptr = NewNodes;
-        Array->Capacity = NewCapacity;
-    }
-
-    Array->Ptr[Array->Count++] = Node;
-}
-
-static ak_fbx_s8 AK_FBX__Parsing_Node_Array_Empty(ak_fbx__parsing_node_array* Array) {
-    return !Array->Ptr || !Array->Count;
-}
-
-static ak_fbx__parsing_node* AK_FBX__Parsing_Node_Array_Pop(ak_fbx__parsing_node_array* Array) {
-    AK_FBX_ASSERT(Array->Count > 0);
-    ak_fbx__parsing_node* Result = Array->Ptr[--Array->Count];
-    return Result;
-}
-
 static ak_fbx_u32 AK_FBX__Hash_U64(ak_fbx_u64 Key) {
     Key = (~Key) + (Key << 18); // Key = (Key << 18) - Key - 1;
     Key = Key ^ (Key >> 31);
@@ -1461,6 +1448,29 @@ static ak_fbx_s8 AK_FBX__Parse_Scene(ak_fbx_scene__impl* Scene, ak_fbx__parsing_
             AK_FBX__Parse_Connections(ParsingNode, &Objects);
         }
     }
+
+    //If everything has succeeded, we can now build the global transform hierarchy
+    ak_fbx_node* RootNode = Scene->Base.RootNode;
+
+    ak_fbx_u32 NodeStackIndex = 0;
+    ak_fbx_node** NodeStack = AK_FBX__Arena_Push_Array(TempArena, Objects.NodeCount, ak_fbx_node*);
+
+    NodeStack[NodeStackIndex++] = RootNode;
+    while(NodeStackIndex) {
+        ak_fbx_node* Node = NodeStack[--NodeStackIndex];
+
+        if(Node->Parent) {
+            AK_FBX__M4x3_Mul(&Node->GlobalTransform, &Node->LocalTransform, &Node->Parent->GlobalTransform);
+        } else {
+            AK_FBX_ASSERT(Node == RootNode);
+            Node->GlobalTransform = Node->LocalTransform;
+        }
+
+        for(ak_fbx_node* ChildNode = Node->FirstChild; ChildNode; ChildNode = ChildNode->NextSibling) {
+            NodeStack[NodeStackIndex++] = ChildNode;
+        }
+    }
+
 
     return ak_fbx__true;
 }
