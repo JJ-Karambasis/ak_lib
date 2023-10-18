@@ -47,10 +47,19 @@ AK_FBX__COMPILE_TIME_ASSERT(sizeof(ak_fbx_u32) == 4);
 AK_FBX__COMPILE_TIME_ASSERT(sizeof(ak_fbx_s64) == 8);
 AK_FBX__COMPILE_TIME_ASSERT(sizeof(ak_fbx_u64) == 8);
 
+typedef struct ak_fbx_s32_array {
+    ak_fbx_s32* Ptr;
+    ak_fbx_u32  Count;
+} ak_fbx_s32_array;
+
 typedef struct ak_fbx_string {
     const char* Str;
     ak_fbx_u32  Size;
 } ak_fbx_string;
+
+typedef struct ak_fbx_v2 {
+    double Data[2];
+} ak_fbx_v2;
 
 typedef struct ak_fbx_v3 {
     double Data[3];
@@ -60,17 +69,39 @@ typedef struct ak_fbx_m4x3 {
     double Data[12];
 } ak_fbx_m4x3;
 
+typedef struct ak_fbx_v2_array {
+    ak_fbx_v2* Ptr;
+    ak_fbx_u32 Count;
+} ak_fbx_v2_array;
+
 typedef struct ak_fbx_v3_array {
     ak_fbx_v3* Ptr;
     ak_fbx_u32 Count;
 } ak_fbx_v3_array;
 
-// typedef struct ak_fbx_polygons {
-//     ak_fbx_polygon_array Polygons;
-//     ak_fbx_s32_array     VertexIndices;
-// } ak_fbx_polygons;
+typedef struct ak_fbx_polygon {
+    ak_fbx_u32 IndexArrayOffset;
+    ak_fbx_u32 IndexArrayCount;
+} ak_fbx_polygon;
+
+typedef struct ak_fbx_polygon_array {
+    ak_fbx_polygon* Ptr;
+    ak_fbx_u32      Count;
+} ak_fbx_polygon_array;
+
+typedef struct ak_fbx_polygons {
+    ak_fbx_polygon_array PolygonArray;
+    ak_fbx_s32_array     VertexIndices;
+    ak_fbx_s32_array     NormalIndices;
+} ak_fbx_polygons;
+
+typedef enum ak_fbx_node_type {
+    AK_FBX_NODE_TYPE_NONE,
+    AK_FBX_NODE_TYPE_GEOMETRY
+} ak_fbx_node_type;
 
 typedef struct ak_fbx_node {
+    ak_fbx_node_type    Type;
     ak_fbx_string       Name;
     ak_fbx_m4x3         GlobalTransform;
     ak_fbx_m4x3         LocalTransform;
@@ -81,15 +112,39 @@ typedef struct ak_fbx_node {
     struct ak_fbx_node* NextSibling;
 } ak_fbx_node;
 
-// typedef struct ak_fbx_geometry {
-//     ak_fbx_node*     Node;
-//     ak_fbx_v3_array  Vertices;
-//     ak_fbx_polygons  Polygons;
-//     ak_fbx_s32_array Edges;
-// } ak_fbx_geometry;
+typedef struct ak_fbx_node_array {
+    ak_fbx_node** Ptr;
+    ak_fbx_u32    Count;
+} ak_fbx_node_array;
+
+typedef struct ak_fbx_uv_map {
+    ak_fbx_string    Name;
+    ak_fbx_v2_array  UVs;
+    ak_fbx_s32_array UVIndices;
+} ak_fbx_uv_map;
+
+typedef struct ak_fbx_uv_map_array {
+    ak_fbx_uv_map* Ptr;
+    ak_fbx_u32     Count;
+} ak_fbx_uv_map_array;
+
+typedef struct ak_fbx_geometry {
+    ak_fbx_node*        Node;
+    ak_fbx_v3_array     Vertices;
+    ak_fbx_v3_array     Normals;
+    ak_fbx_polygons     Polygons;
+    ak_fbx_uv_map_array UVMaps;
+} ak_fbx_geometry;
+
+typedef struct ak_fbx_geometry_array {
+    ak_fbx_geometry** Ptr;
+    ak_fbx_u32        Count;
+} ak_fbx_geometry_array;
 
 typedef struct ak_fbx_scene {
-    ak_fbx_node* RootNode;
+    ak_fbx_node*          RootNode;
+    ak_fbx_node_array     Nodes;
+    ak_fbx_geometry_array Geometries;
 } ak_fbx_scene;
 
 AKFBXDEF ak_fbx_scene* AK_FBX_Load_From_Memory(const void* Buffer, ak_fbx_u64 Length, void* UserData);
@@ -463,11 +518,6 @@ typedef struct ak_fbx__bool_array {
     ak_fbx_u32 Count;
 } ak_fbx__bool_array;
 
-typedef struct ak_fbx__s32_array {
-    ak_fbx_s32* Ptr;
-    ak_fbx_u32 Count;
-} ak_fbx__s32_array;
-
 typedef struct ak_fbx__f32_array {
     float* Ptr;
     ak_fbx_u32   Count;
@@ -512,7 +562,7 @@ typedef struct ak_fbx__property {
         ak_fbx__buffer     Buffer;
         ak_fbx_string      String;
         ak_fbx__bool_array BoolArray;
-        ak_fbx__s32_array  S32Array;
+        ak_fbx_s32_array   S32Array;
         ak_fbx__f32_array  F32Array;
         ak_fbx__s64_array  S64Array;
         ak_fbx__f64_array  F64Array;
@@ -589,11 +639,7 @@ void DEBUG_Print_Property(const ak_fbx__property* Property) {
 
         case AK_FBX__PROPERTY_TYPE_S32_ARRAY: {
             for(ak_fbx_u32 i = 0; i < Property->Data.S32Array.Count; i++) {
-                ak_fbx_s32 Value = Property->Data.S32Array.Ptr[i];
-                if(Value < 0) {
-                    Value = -Value - 1;
-                }
-                printf("%d", Value);
+                printf("%d", Property->Data.S32Array.Ptr[i]);
                 if(i != Property->Data.S32Array.Count-1) 
                     printf(", ");  
             }
@@ -667,6 +713,16 @@ static ak_fbx_s64 AK_FBX__Property_Get_S64(const ak_fbx__property* Property) {
 static double AK_FBX__Property_Get_F64(const ak_fbx__property* Property) {
     AK_FBX_ASSERT(Property->Type == AK_FBX__PROPERTY_TYPE_F64);
     return Property->Data.F64;
+}
+
+static ak_fbx_s32_array AK_FBX__Property_Get_S32_Array(const ak_fbx__property* Property) {
+    AK_FBX_ASSERT(Property->Type == AK_FBX__PROPERTY_TYPE_S32_ARRAY);
+    return Property->Data.S32Array;
+}
+
+static ak_fbx__f64_array AK_FBX__Property_Get_F64_Array(const ak_fbx__property* Property) {
+    AK_FBX_ASSERT(Property->Type == AK_FBX__PROPERTY_TYPE_F64_ARRAY);
+    return Property->Data.F64Array;
 }
 
 static ak_fbx_string AK_FBX__Property_Get_Str(const ak_fbx__property* Property) {
@@ -1022,6 +1078,10 @@ typedef struct ak_fbx_scene__impl {
 
 typedef struct ak_fbx_node__impl {
     ak_fbx_node Node;
+
+    union {
+        ak_fbx_geometry* Geometry;
+    } Object;
 } ak_fbx_node__impl;
 
 static void AK_FBX__Node_Add_Child(ak_fbx_node__impl* Parent, ak_fbx_node__impl* Child) {
@@ -1185,10 +1245,12 @@ static void* AK_FBX__ID_Ptr_Map_Get(ak_fbx__id_ptr_map* Map, ak_fbx_s64 Key) {
 
 typedef struct ak_fbx__definitions {
     ak_fbx_u32 ModelCount;
+    ak_fbx_u32 GeometryCount;
 } ak_fbx__definitions;
 
 typedef enum ak_fbx__object_type {
     AK_FBX__OBJECT_TYPE_NODE,
+    AK_FBX__OBJECT_TYPE_GEOMETRY,
     AK_FBX__OBJECT_TYPE_COUNT
 } ak_fbx__object_type;
 
@@ -1199,7 +1261,9 @@ typedef struct ak_fbx__object {
 
 typedef struct ak_fbx__objects {
     ak_fbx_u32         NodeCount;
+    ak_fbx_u32         GeometryCount;
     ak_fbx_node__impl* Nodes;
+    ak_fbx_geometry*   Geometries;
     ak_fbx__id_ptr_map ObjectIDMap;
 } ak_fbx__objects;
 
@@ -1231,6 +1295,10 @@ static void AK_FBX__Parse_Definitions(ak_fbx__definitions* Definitions, ak_fbx__
             ak_fbx_string TypeStr = AK_FBX__Property_Get_Str(AK_FBX__Get_Property(ParsingNode, 0));
             if(AK_FBX_STRNCMP(TypeStr.Str, "Model", TypeStr.Size) == 0) {
                 Definitions->ModelCount = (ak_fbx_u32)AK_FBX__Parse_Count(ParsingNode);
+            }
+
+            if(AK_FBX_STRNCMP(TypeStr.Str, "Geometry", TypeStr.Size) == 0) {
+                Definitions->GeometryCount = (ak_fbx_u32)AK_FBX__Parse_Count(ParsingNode);
             }
         }
     }
@@ -1319,10 +1387,79 @@ static void AK_FBX__Parse_Model(ak_fbx__objects* Objects, ak_fbx__parsing_node* 
     AK_FBX__ID_Ptr_Map_Add(&Objects->ObjectIDMap, ID, Object);
 }
 
-// static void AK_FBX__Parse_Geometry(ak_fbx__objects* Objects, ak_fbx__parsing_node* GeometryNode, ak_fbx__arena* TempArena, ak_fbx__arena* Arena) {
-//     // ak_fbx_geometry__impl* GeometryImpl = &Objects->Geometry[Objects->GeometryCount++];
-//     // ak_fbx_geometry* Geometry = &GeometryImpl->Geometry;
-// }
+typedef struct ak_fbx_polygon__entry {
+    ak_fbx_polygon Polygon;
+    struct ak_fbx_polygon__entry* Next;
+} ak_fbx_polygon__entry;
+
+typedef struct ak_fbx_polygon__list {
+    ak_fbx_polygon__entry* First;
+    ak_fbx_polygon__entry* Last;
+    ak_fbx_u32 Count;
+} ak_fbx_polygon__list;
+
+#pragma warning(disable : 4100)
+static void AK_FBX__Parse_Geometry(ak_fbx__objects* Objects, ak_fbx__parsing_node* GeometryNode, ak_fbx__arena* TempArena, ak_fbx__arena* Arena) {
+    //TODO: Might need to parse the version and determine if different version have different formats
+
+    ak_fbx_geometry* Geometry = &Objects->Geometries[Objects->GeometryCount++];
+    
+    for(ak_fbx__parsing_node* Node = GeometryNode->FirstChild; Node; Node = Node->NextSibling) {
+        if(AK_FBX_STRNCMP(Node->Name.Str, "Vertices", Node->Name.Size) == 0) {
+            ak_fbx__f64_array Vertices = AK_FBX__Property_Get_F64_Array(AK_FBX__Get_Property(Node, 0));
+
+            //3 components per vertex
+            Geometry->Vertices.Count = Vertices.Count/3;
+            Geometry->Vertices.Ptr = AK_FBX__Arena_Push_Array(Arena, Geometry->Vertices.Count, ak_fbx_v3);
+            AK_FBX_MEMCPY(Geometry->Vertices.Ptr, Vertices.Ptr, Vertices.Count*sizeof(double));
+        }
+
+        if(AK_FBX_STRNCMP(Node->Name.Str, "PolygonVertexIndex", Node->Name.Size) == 0) {
+            ak_fbx_s32_array PolygonVertexIndex = AK_FBX__Property_Get_S32_Array(AK_FBX__Get_Property(Node, 0));
+
+            Geometry->Polygons.VertexIndices.Count = PolygonVertexIndex.Count;
+            Geometry->Polygons.VertexIndices.Ptr = AK_FBX__Arena_Push_Array(Arena, PolygonVertexIndex.Count, ak_fbx_s32);
+
+            ak_fbx_polygon__list Polygons;
+            AK_FBX_MEMSET(&Polygons, 0, sizeof(ak_fbx_polygon__list));
+
+            ak_fbx_u32 StartPolygonOffset = 0;
+            for(ak_fbx_u32 Index = 0; Index < PolygonVertexIndex.Count; Index++) {
+                if(PolygonVertexIndex.Ptr[Index] < 0) {
+
+                    Geometry->Polygons.VertexIndices.Ptr[Index] = ~PolygonVertexIndex.Ptr[Index];
+                    
+                    ak_fbx_polygon__entry* Entry = AK_FBX__Arena_Push_Struct(TempArena, ak_fbx_polygon__entry);
+                    Entry->Polygon.IndexArrayOffset = StartPolygonOffset;
+                    Entry->Polygon.IndexArrayCount  = (Index - StartPolygonOffset)+1;  
+
+                    StartPolygonOffset = Index+1;
+
+                    Polygons.Count++;
+                    AK_FBX__SLL_Push_Back(Polygons.First, Polygons.Last, Entry);
+                } else {
+                    Geometry->Polygons.VertexIndices.Ptr[Index] = PolygonVertexIndex.Ptr[Index];
+                }
+            }
+
+            Geometry->Polygons.PolygonArray.Count = Polygons.Count;
+            Geometry->Polygons.PolygonArray.Ptr = AK_FBX__Arena_Push_Array(Arena, Polygons.Count, ak_fbx_polygon);
+
+            ak_fbx_u32 PolygonIndex = 0;
+            for(ak_fbx_polygon__entry* Entry = Polygons.First; Entry; Entry = Entry->Next) {
+                Geometry->Polygons.PolygonArray.Ptr[PolygonIndex++] = Entry->Polygon;
+            }
+        }
+    }
+
+    //Geometry nodes start have an ID property
+    ak_fbx_s64 ID = AK_FBX__Property_Get_S64(AK_FBX__Get_Property(GeometryNode, 0));
+
+    ak_fbx__object* Object = AK_FBX__Arena_Push_Struct(TempArena, ak_fbx__object);
+    Object->Type = AK_FBX__OBJECT_TYPE_GEOMETRY;
+    Object->Ptr = Geometry;
+    AK_FBX__ID_Ptr_Map_Add(&Objects->ObjectIDMap, ID, Object);
+}
 
 static void AK_FBX__Parse_Objects(ak_fbx__objects* Objects, ak_fbx__parsing_node* ObjectNode, ak_fbx__arena* TempArena, ak_fbx__arena* Arena) {
     for(ak_fbx__parsing_node* ParsingNode = ObjectNode->FirstChild; ParsingNode; ParsingNode = ParsingNode->NextSibling) {
@@ -1332,8 +1469,8 @@ static void AK_FBX__Parse_Objects(ak_fbx__objects* Objects, ak_fbx__parsing_node
         }
 
         if(AK_FBX_STRNCMP(ParsingNode->Name.Str, "Geometry", ParsingNode->Name.Size) == 0) {
-            //AK_FBX_ASSERT(Objects->Geometry);
-            //AK_FBX__Parse_Geometry(Objects, ParsingNode, TempArena, Arena);
+            AK_FBX_ASSERT(Objects->Geometries);
+            AK_FBX__Parse_Geometry(Objects, ParsingNode, TempArena, Arena);
         }
     }
 }
@@ -1348,11 +1485,20 @@ static AK_FBX__CONNECT_OBJECTS_FUNC(AK_FBX__Connect_Nodes) {
     AK_FBX__Node_Add_Child(NodeB, NodeA);
 }
 
+static AK_FBX__CONNECT_OBJECTS_FUNC(AK_FBX__Connect_Geometry_And_Node) {
+    ak_fbx_geometry* GeometryA = (ak_fbx_geometry*)ObjectA->Ptr;
+    ak_fbx_node__impl* NodeB = (ak_fbx_node__impl*)ObjectB->Ptr;
+
+    NodeB->Node.Type = AK_FBX_NODE_TYPE_GEOMETRY;
+    NodeB->Object.Geometry = GeometryA;
+    GeometryA->Node = (ak_fbx_node*)NodeB;
+}
+
 static ak_fbx__connect_object_funcs* AK_FBX__Connect_Objects_Funcs[AK_FBX__OBJECT_TYPE_COUNT][AK_FBX__OBJECT_TYPE_COUNT] = {
-    {AK_FBX__Connect_Nodes}
+    {AK_FBX__Connect_Nodes, ak_fbx__nullptr},
+    {AK_FBX__Connect_Geometry_And_Node, ak_fbx__nullptr}
 };
 
-#pragma warning(disable : 4100)
 static void AK_FBX__Parse_Connections(ak_fbx__parsing_node* ConnectionNode, ak_fbx__objects* Objects) {
     for(ak_fbx__parsing_node* ParsingNode = ConnectionNode->FirstChild; ParsingNode; ParsingNode = ParsingNode->NextSibling) {
         //ak_fbx_string ConnectionType = AK_FBX__Property_Get_Str(AK_FBX__Get_Property(ParsingNode, 0));
@@ -1409,8 +1555,12 @@ static ak_fbx_s8 AK_FBX__Parse_Scene(ak_fbx_scene__impl* Scene, ak_fbx__parsing_
             //Plus one for the root node
             ak_fbx_u32 ModelCount = Definitions.ModelCount+1;
             Objects.Nodes = AK_FBX__Arena_Push_Array(&Scene->Arena, ModelCount, ak_fbx_node__impl);
-            
-            ak_fbx_u32 ObjectCount = ModelCount;
+            AK_FBX_MEMSET(Objects.Nodes, 0, sizeof(ak_fbx_node__impl)*ModelCount);
+
+            Objects.Geometries = AK_FBX__Arena_Push_Array(&Scene->Arena, Definitions.GeometryCount, ak_fbx_geometry);
+            AK_FBX_MEMSET(Objects.Geometries, 0, sizeof(ak_fbx_geometry)*Definitions.GeometryCount);
+
+            ak_fbx_u32 ObjectCount = ModelCount+Definitions.GeometryCount;
             Objects.ObjectIDMap = AK_FBX__ID_Ptr_Map_Create(TempArena, ObjectCount);
 
             ak_fbx_node__impl* RootNode = &Objects.Nodes[Objects.NodeCount++];
@@ -1445,6 +1595,11 @@ static ak_fbx_s8 AK_FBX__Parse_Scene(ak_fbx_scene__impl* Scene, ak_fbx__parsing_
                 return ak_fbx__false;
             }
 
+            if(Objects.GeometryCount != Definitions.GeometryCount) {
+                //TODO: Diagnostic and error logging
+                return ak_fbx__false;
+            }
+
             AK_FBX__Parse_Connections(ParsingNode, &Objects);
         }
     }
@@ -1471,6 +1626,19 @@ static ak_fbx_s8 AK_FBX__Parse_Scene(ak_fbx_scene__impl* Scene, ak_fbx__parsing_
         }
     }
 
+    Scene->Base.Nodes.Ptr = AK_FBX__Arena_Push_Array(&Scene->Arena, Objects.NodeCount, ak_fbx_node*);
+    Scene->Base.Geometries.Ptr = AK_FBX__Arena_Push_Array(&Scene->Arena, Objects.GeometryCount, ak_fbx_geometry*);
+
+    for(ak_fbx_u32 NodeIndex = 0; NodeIndex < Objects.NodeCount; NodeIndex++) {
+        Scene->Base.Nodes.Ptr[NodeIndex] = (ak_fbx_node*)(Objects.Nodes + NodeIndex);
+    }
+
+    for(ak_fbx_u32 GeometryIndex = 0; GeometryIndex < Objects.GeometryCount; GeometryIndex++) {
+        Scene->Base.Geometries.Ptr[GeometryIndex] = Objects.Geometries + GeometryIndex;
+    }
+    
+    Scene->Base.Nodes.Count = Objects.NodeCount;
+    Scene->Base.Geometries.Count = Objects.GeometryCount;
 
     return ak_fbx__true;
 }
