@@ -25,10 +25,10 @@ void Free_Memory(void* Memory, void* UserData) {
 #define AK_FBX_FREE(ptr, user_data) Free_Memory(ptr, user_data)
 #include <ak_fbx.h>
 
-#pragma warning(push)
 #pragma warning(disable : 5045)
+
+
 #include "utest.h"
-#pragma warning(pop)
 
 #include <stdbool.h>
 
@@ -60,15 +60,19 @@ UTEST(AK_FBX, Box) {
 
     while(NodeIndex) {
         ak_fbx_node* Node = NodeStack[--NodeIndex];
-        if(strncmp(Node->Name.Str, "Camera", Node->Name.Size)) {
+        if(strncmp(Node->Name.Str, "Camera", Node->Name.Size) == 0) {
             FoundCamera = true;
         }
 
-        if(strncmp(Node->Name.Str, "Cube", Node->Name.Size)) {
+        if(strncmp(Node->Name.Str, "Cube", Node->Name.Size) == 0) {
             FoundCube = true;
+            ASSERT_EQ(Node->Type, AK_FBX_NODE_TYPE_GEOMETRY);
+
+            ak_fbx_geometry* CubeGeometry = AK_FBX_Node_Get_Geometry(Node);
+            ASSERT_TRUE(CubeGeometry);
         }
 
-        if(strncmp(Node->Name.Str, "Light", Node->Name.Size)) {
+        if(strncmp(Node->Name.Str, "Light", Node->Name.Size) == 0) {
             FoundLight = true;    
         }
 
