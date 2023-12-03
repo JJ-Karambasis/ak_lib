@@ -239,7 +239,7 @@ AKFBXDEF void AK_FBX_M4x3_Identity(ak_fbx_m4x3* M);
 #endif
 
 #pragma warning(push)
-#pragma warning(disable : 4996 4820 5045)
+#pragma warning(disable : 4062 4820 4996 5045)
 
 #ifdef __cplusplus
 extern "C" {
@@ -511,7 +511,7 @@ static ak_fbx__buffer AK_FBX__Make_Buffer(ak_fbx__arena* Arena, const void* Buff
 
     ak_fbx__buffer Result;
     Result.Length = BufferLength;
-    Result.Ptr = DstBuffer;
+    Result.Ptr = (ak_fbx_u8*)DstBuffer;
 
     return Result;
 }
@@ -758,7 +758,7 @@ static int ak_fbx__stbi_zlib_decode_buffer(char *obuffer, int olen, const char *
 
 static ak_fbx_s8 AK_FBX__Decompress_ZLib(void* OutputBuffer, ak_fbx_u32 OutputLength, const void* InputBuffer, ak_fbx_u32 InputLength) {
     //TODO: Should we do some validation on the compression length 
-    return ak_fbx__stbi_zlib_decode_buffer(OutputBuffer, (int)OutputLength, InputBuffer, (int)InputLength) != -1;
+    return ak_fbx__stbi_zlib_decode_buffer((char*)OutputBuffer, (int)OutputLength, (const char*)InputBuffer, (int)InputLength) != -1;
 }
 
 static ak_fbx_s8 AK_FBX__Binary_Read_Property(ak_fbx__stream* Stream, ak_fbx__property* Property, ak_fbx__arena* Arena) {
@@ -816,7 +816,7 @@ static ak_fbx_s8 AK_FBX__Binary_Read_Property(ak_fbx__stream* Stream, ak_fbx__pr
 
         case 'S': {
             ak_fbx_u32 StrLength = AK_FBX__Stream_Consume32(Stream);
-            const char* Str = AK_FBX__Stream_Consume(Stream, StrLength);
+            const char* Str = (const char*)AK_FBX__Stream_Consume(Stream, StrLength);
 
             Property->Type = AK_FBX__PROPERTY_TYPE_STRING;
             Property->Data.String = AK_FBX__Make_String(Arena, Str, StrLength);
@@ -1658,8 +1658,8 @@ static void AK_FBX__Parse_Connections(ak_fbx__parsing_node* ConnectionNode, ak_f
         ak_fbx_s64 AID = AK_FBX__Property_Get_S64(AK_FBX__Get_Property(ParsingNode, 1));
         ak_fbx_s64 BID = AK_FBX__Property_Get_S64(AK_FBX__Get_Property(ParsingNode, 2));
 
-        ak_fbx__object* ObjectA = AK_FBX__ID_Ptr_Map_Get(&Objects->ObjectIDMap, AID);
-        ak_fbx__object* ObjectB = AK_FBX__ID_Ptr_Map_Get(&Objects->ObjectIDMap, BID);
+        ak_fbx__object* ObjectA = (ak_fbx__object*)AK_FBX__ID_Ptr_Map_Get(&Objects->ObjectIDMap, AID);
+        ak_fbx__object* ObjectB = (ak_fbx__object*)AK_FBX__ID_Ptr_Map_Get(&Objects->ObjectIDMap, BID);
         if(ObjectA && ObjectB) {
             AK_FBX__Connect_Objects_Funcs[ObjectA->Type][ObjectB->Type](ObjectA, ObjectB);
         }
