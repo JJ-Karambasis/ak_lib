@@ -1860,7 +1860,7 @@ AKFBXDEF void AK_FBX_Free(ak_fbx_scene* Scene) {
 //Node utils
 AKFBXDEF ak_fbx_geometry* AK_FBX_Node_Get_Geometry(ak_fbx_node* _Node) {
     ak_fbx_node__impl* Node = (ak_fbx_node__impl*)_Node;
-    if(Node->Node.Type != AK_FBX_NODE_TYPE_GEOMETRY) return NULL;
+    if(Node->Node.Type != AK_FBX_NODE_TYPE_GEOMETRY) return ak_fbx__nullptr;
     return Node->Object.Geometry;
 }
 
