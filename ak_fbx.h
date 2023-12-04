@@ -1,9 +1,10 @@
 #ifndef AK_FBX_H
 #define AK_FBX_H
 
-
+#ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning(disable : 4820)
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -173,7 +174,9 @@ AKFBXDEF void AK_FBX_M4x3_Identity(ak_fbx_m4x3* M);
 }
 #endif
 
+#ifdef _MSC_VER
 #pragma warning(pop)
+#endif
 
 #endif //AK_FBX_H
 
@@ -238,8 +241,15 @@ AKFBXDEF void AK_FBX_M4x3_Identity(ak_fbx_m4x3* M);
 #define AK_FBX_ASSERT(x) assert(x)
 #endif
 
+#ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning(disable : 4062 4820 4996 5045)
+#endif
+
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wswitch"
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -250,6 +260,8 @@ extern "C" {
 #else
 #define ak_fbx__nullptr 0
 #endif
+
+#define AK_FBX__DEFAULT_ALIGNMENT (sizeof(void*)*2)
 
 //0.01745329251 is PI/180
 #define AK_FBX__To_Radians(degrees) ((degrees)*0.01745329251)
@@ -406,7 +418,9 @@ static ak_fbx__arena AK_FBX__Arena_Create(void* UserData) {
     return Result;
 }
 
-static void* AK_FBX__Arena_Push(ak_fbx__arena* Arena, size_t Size) {
+#define AK_FBX__Align_Pow2(value, alignment) (((value) + (alignment)-1) & ~((alignment)-1))
+
+static void* AK_FBX__Arena_Push_Alignment(ak_fbx__arena* Arena, size_t Size, size_t Alignment) {
     if(!Size) {
         return ak_fbx__nullptr;
     }
@@ -427,11 +441,18 @@ static void* AK_FBX__Arena_Push(ak_fbx__arena* Arena, size_t Size) {
     }
 
     Arena->CurrentBlock = Block;
+    Arena->CurrentBlock->Used = AK_FBX__Align_Pow2(Arena->CurrentBlock->Used, Alignment);
     void* Result = Arena->CurrentBlock->Bytes + Arena->CurrentBlock->Used;
     Arena->CurrentBlock->Used += Size;
+
     AK_FBX_ASSERT(Arena->CurrentBlock->Used <= Arena->CurrentBlock->Capacity);
 
     return Result;
+}
+#undef AK_FBX__Align_Pow2
+
+static void* AK_FBX__Arena_Push(ak_fbx__arena* Arena, size_t Size) {
+    return AK_FBX__Arena_Push_Alignment(Arena, Size, AK_FBX__DEFAULT_ALIGNMENT);
 }
 
 static void AK_FBX__Arena_Delete(ak_fbx__arena* Arena) {
@@ -485,19 +506,31 @@ static inline const void* AK_FBX__Stream_Consume(ak_fbx__stream* Stream, ak_fbx_
 }
 
 static inline ak_fbx_u8 AK_FBX__Stream_Consume8(ak_fbx__stream* Stream) {
-    return *(ak_fbx_u8*)AK_FBX__Stream_Consume(Stream, sizeof(ak_fbx_u8));
+    //Prevent strict aliasing via memcpy
+    ak_fbx_u8 Result;
+    AK_FBX_MEMCPY(&Result, AK_FBX__Stream_Consume(Stream, sizeof(ak_fbx_u8)), sizeof(ak_fbx_u8));
+    return Result;
 }
 
 static inline ak_fbx_u16 AK_FBX__Stream_Consume16(ak_fbx__stream* Stream) {
-    return *(ak_fbx_u16*)AK_FBX__Stream_Consume(Stream, sizeof(ak_fbx_u16));
+    //Prevent strict aliasing via memcpy
+    ak_fbx_u16 Result;
+    AK_FBX_MEMCPY(&Result, AK_FBX__Stream_Consume(Stream, sizeof(ak_fbx_u16)), sizeof(ak_fbx_u16));
+    return Result;
 }
 
 static inline ak_fbx_u32 AK_FBX__Stream_Consume32(ak_fbx__stream* Stream) {
-    return *(ak_fbx_u32*)AK_FBX__Stream_Consume(Stream, sizeof(ak_fbx_u32));
+    //Prevent strict aliasing via memcpy
+    ak_fbx_u32 Result;
+    AK_FBX_MEMCPY(&Result, AK_FBX__Stream_Consume(Stream, sizeof(ak_fbx_u32)), sizeof(ak_fbx_u32));
+    return Result;
 }
 
 static inline ak_fbx_u64 AK_FBX__Stream_Consume64(ak_fbx__stream* Stream) {
-    return *(ak_fbx_u64*)AK_FBX__Stream_Consume(Stream, sizeof(ak_fbx_u64));
+    //Prevent strict aliasing via memcpy
+    ak_fbx_u64 Result;
+    AK_FBX_MEMCPY(&Result, AK_FBX__Stream_Consume(Stream, sizeof(ak_fbx_u64)), sizeof(ak_fbx_u64));
+    return Result;
 }
 
 typedef struct ak_fbx__buffer {
@@ -789,14 +822,16 @@ static ak_fbx_s8 AK_FBX__Binary_Read_Property(ak_fbx__stream* Stream, ak_fbx__pr
 
         //32 bit floating point
         case 'F': {
+            //Prevent strict aliasing via memcpy
             Property->Type = AK_FBX__PROPERTY_TYPE_F32;
-            Property->Data.F32 = *(float*)AK_FBX__Stream_Consume(Stream, sizeof(float)); 
+            AK_FBX_MEMCPY(&Property->Data.F32, AK_FBX__Stream_Consume(Stream, sizeof(float)), sizeof(float));
         } break;
 
         //64 bit floating point
         case 'D': {
+            //Prevent strict aliasing via memcpy
             Property->Type = AK_FBX__PROPERTY_TYPE_F64;
-            Property->Data.F64 = *(double*)AK_FBX__Stream_Consume(Stream, sizeof(double)); 
+            AK_FBX_MEMCPY(&Property->Data.F64, AK_FBX__Stream_Consume(Stream, sizeof(double)), sizeof(double));
         } break;
 
         //64 bit signed integer
@@ -1316,8 +1351,6 @@ static void AK_FBX__Parse_Definitions(ak_fbx__definitions* Definitions, ak_fbx__
     }
 }
 
-#pragma warning(disable : 4189)
-
 static void AK_FBX__Parse_Model(ak_fbx__objects* Objects, ak_fbx__parsing_node* ModelNode, ak_fbx__arena* TempArena, ak_fbx__arena* Arena) {
     //TODO: Might need to parse the version and determine if different version have different formats
 
@@ -1543,7 +1576,6 @@ static void AK_FBX__Parse_UV_Map(ak_fbx_geometry* Geometry, ak_fbx__parsing_node
     }
 }
 
-#pragma warning(disable : 4100)
 static void AK_FBX__Parse_Geometry(ak_fbx__objects* Objects, ak_fbx__parsing_node* GeometryNode, ak_fbx__arena* TempArena, ak_fbx__arena* Arena) {
     //TODO: Might need to parse the version and determine if different version have different formats
 
@@ -2301,6 +2333,12 @@ static int ak_fbx__stbi_zlib_decode_buffer(char *obuffer, int olen, char const *
 }
 #endif
 
+#ifdef _MSC_VER
 #pragma warning(pop)
+#endif
+
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
 
 #endif //AK_FBX_IMPLEMENTATION
