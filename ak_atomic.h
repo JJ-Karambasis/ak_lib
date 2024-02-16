@@ -15,6 +15,13 @@ extern "C" {
 #   else
 #       error "Unrecognized platform!"
 #   endif
+#elif defined(__GNUC__)
+#   define AK_ATOMIC_GCC_COMPILER
+#   define AK_ATOMIC_POSIX_OS
+#   if defined(__aarch64__)
+#       define AK_ATOMIC_AARCH64_CPU
+#       define AK_ATOMIC_PTR_SIZE 8
+#   endif
 #endif
 
 #ifndef AKATOMICDEF
@@ -67,6 +74,30 @@ typedef struct ak_atomic_ptr {
 #define AK_Atomic_Thread_Fence_Rel() _WriteBarrier()
 #define AK_Atomic_Thread_Fence_Seq_Cst() MemoryBarrier()
 
+#elif defined(AK_ATOMIC_GCC_COMPILER) && defined(AK_ATOMIC_AARCH64_CPU)
+
+//Atomic operators on this architecture need to be aligned properly
+
+typedef struct ak_atomic_u32 {
+	volatile uint32_t Nonatomic;
+} __attribute__((aligned(4))) ak_atomic_u32;
+
+typedef struct ak_atomic_u64 {
+	volatile uint64_t Nonatomic;
+} __attribute__((aligned(8))) ak_atomic_u64;
+
+typedef struct ak_atomic_ptr {
+	volatile void* Nonatomic;
+} __attribute__((aligned(AK_ATOMIC_PTR_SIZE))) ak_atomic_ptr;
+
+#define AK_Atomic_Compiler_Fence_Acq() __asm__ volatile("" ::: "memory")
+#define AK_Atomic_Compiler_Fence_Rel() __asm__ volatile("" ::: "memory")
+#define AK_Atomic_Compiler_Fence_Seq_Cst() __asm__ volatile("" ::: "memory")
+
+#define AK_Atomic_Thread_Fence_Acq() __asm__ volatile("dmb ish" ::: "memory")
+#define AK_Atomic_Thread_Fence_Rel() __asm__ volatile("dmb ish" ::: "memory")
+#define AK_Atomic_Thread_Fence_Seq_Cst() __asm__ volatile("dmb ish" ::: "memory")
+
 #else
 #error "Not Implemented"
 #endif
@@ -99,7 +130,7 @@ AKATOMICDEF void* AK_Atomic_Load_Ptr_Relaxed(const ak_atomic_ptr* Object);
 AKATOMICDEF void  AK_Atomic_Store_Ptr_Relaxed(ak_atomic_ptr* Object, void* Value);
 AKATOMICDEF void* AK_Atomic_Exchange_Ptr_Relaxed(ak_atomic_ptr* Object, void* NewValue);
 AKATOMICDEF void* AK_Atomic_Compare_Exchange_Ptr_Relaxed(ak_atomic_ptr* Object, void* OldValue, void* NewValue);
-AKATOMICDEF bool  AK_Atomic_Compare_Exchange_Ptr_Weak_Relaxed(ak_atomic_ptr* Object, void* OldValue, void* NewValue);
+AKATOMICDEF bool  AK_Atomic_Compare_Exchange_Ptr_Weak_Relaxed(ak_atomic_ptr* Object, void** OldValue, void* NewValue);
 
 //Compare exchange for boolean results
 AKATOMICDEF bool AK_Atomic_Compare_Exchange_Bool_U32_Relaxed(ak_atomic_u32* Object, uint32_t OldValue, uint32_t NewValue);
@@ -159,6 +190,21 @@ typedef struct ak_mutex {
     CRITICAL_SECTION CriticalSection;
 } ak_mutex;
 
+#elif defined(AK_ATOMIC_POSIX_OS)
+
+#include <pthread.h>
+
+struct ak_thread {
+    pthread_t Thread;
+    ak_thread_callback* Callback;
+    void*               UserData;
+};
+
+typedef struct ak_mutex {
+    pthread_mutexattr_t Attribute;
+    pthread_mutex_t Mutex;
+} ak_mutex;
+
 #else
 #error "Not Implemented"
 #endif
@@ -184,7 +230,7 @@ AKATOMICDEF bool AK_Mutex_Try_Lock(ak_mutex* Mutex);
 
 //Compiler specific functions (all other atomics are built ontop of these)
 
-#   if defined(AK_ATOMIC_MSVC_COMPILER)
+#if defined(AK_ATOMIC_MSVC_COMPILER)
 
 AKATOMICDEF uint32_t AK_Atomic_Load_U32_Relaxed(const ak_atomic_u32* Object) {
     //Do a volatile load so that compiler doesn't duplicate loads, which makes
@@ -303,12 +349,162 @@ AKATOMICDEF uint64_t AK_Atomic_Decrement_U64_Relaxed(ak_atomic_u64* Object) {
 #endif
 }
 
-#   else
+#elif defined(AK_ATOMIC_GCC_COMPILER) && defined(AK_ATOMIC_AARCH64_CPU)
+AKATOMICDEF uint32_t AK_Atomic_Load_U32_Relaxed(const ak_atomic_u32* Object) {
+    return Object->Nonatomic;
+}
+
+AKATOMICDEF void AK_Atomic_Store_U32_Relaxed(ak_atomic_u32* Object, uint32_t Value) {
+    Object->Nonatomic = Value;
+}
+
+AKATOMICDEF uint32_t AK_Atomic_Exchange_U32_Relaxed(ak_atomic_u32* Object, uint32_t NewValue) {
+    uint32_t Status;
+    uint32_t Previous;
+    __asm__ volatile(
+        "1: ldxr %w0, %2\n"
+        "   stxr %w1, %w3, %2\n"
+        "   cmp  %w1, #0\n"
+        "   b.ne 1b\n"
+        "2:"
+        : "=&r" (Previous), "=&r" (Status), "+Q"(Object->Nonatomic)
+        : "r"(NewValue)
+        : "cc");
+    
+    return Previous;
+}
+
+AKATOMICDEF uint32_t AK_Atomic_Compare_Exchange_U32_Relaxed(ak_atomic_u32* Object, uint32_t OldValue, uint32_t NewValue) {
+    uint32_t Status;
+    uint32_t Previous;
+
+    __asm__ volatile(
+        "1: ldxr %w0, %2\n"
+        "   cmp  %w0, %w3\n"
+        "   b.ne 2f\n"
+        "   stxr %w1, %w4, %2\n"
+        "   cbnz %w1, 1b\n"
+        "2:"
+        : "=&r" (Previous), "=&r" (Status), "+Q"(Object->Nonatomic)
+        : "Ir" (OldValue), "r" (NewValue)
+        : "cc");
+
+    return Previous;
+}
+
+AKATOMICDEF bool AK_Atomic_Compare_Exchange_U32_Weak_Relaxed(ak_atomic_u32* Object, uint32_t* OldValue, uint32_t NewValue) {
+    uint32_t Old = *OldValue;
+    uint32_t Previous = (uint32_t)AK_Atomic_Compare_Exchange_U32_Relaxed(Object, Old, NewValue);
+    bool Result = (Previous == Old);
+    if(!Result) *OldValue = Previous;
+    return Result;
+}
+
+AKATOMICDEF uint32_t AK_Atomic_Fetch_Add_U32_Relaxed(ak_atomic_u32* Object, int32_t Operand) {
+    uint32_t Status;
+    uint32_t Previous;
+
+    __asm__ volatile(
+        "1: ldxr %w0, %2\n"
+        "   add  %w0, %w0, %w3\n"
+        "   stxr %w1, %w0, %2\n"
+        "   cbnz %w1, 1b\n"
+        "2:"
+        : "=&r" (Previous), "=&r" (Status), "+Q"(Object->Nonatomic)
+        : "Ir" (Operand)
+        : "cc");
+
+    return Previous;
+}
+
+AKATOMICDEF uint32_t AK_Atomic_Increment_U32_Relaxed(ak_atomic_u32* Object) {
+    return AK_Atomic_Fetch_Add_U32_Relaxed(Object, 1)+1;
+}
+
+AKATOMICDEF uint32_t AK_Atomic_Decrement_U32_Relaxed(ak_atomic_u32* Object) {
+    return AK_Atomic_Fetch_Add_U32_Relaxed(Object, -1) - 1;
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Load_U64_Relaxed(const ak_atomic_u64* Object) {
+    return Object->Nonatomic;
+}
+
+AKATOMICDEF void AK_Atomic_Store_U64_Relaxed(ak_atomic_u64* Object, uint64_t Value) {
+    Object->Nonatomic = Value;
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Exchange_U64_Relaxed(ak_atomic_u64* Object, uint64_t NewValue) {
+    uint32_t Status;
+    uint64_t Previous;
+    __asm__ volatile(
+        "1: ldxr %0, %2\n"
+        "   stxr %w1, %3, %2\n"
+        "   cmp  %w1, #0\n"
+        "   b.ne 1b\n"
+        "2:"
+        : "=&r" (Previous), "=&r" (Status), "+Q"(Object->Nonatomic)
+        : "r"(NewValue)
+        : "cc");
+    
+    return Previous;
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Compare_Exchange_U64_Relaxed(ak_atomic_u64* Object, uint64_t OldValue, uint64_t NewValue) {
+    uint32_t Status;
+    uint64_t Previous;
+
+    __asm__ volatile(
+        "1: ldxr %0, %2\n"
+        "   cmp  %0, %3\n"
+        "   b.ne 2f\n"
+        "   stxr %w1, %4, %2\n"
+        "   cbnz %w1, 1b\n"
+        "2:"
+        : "=&r" (Previous), "=&r" (Status), "+Q"(Object->Nonatomic)
+        : "Ir" (OldValue), "r" (NewValue)
+        : "cc");
+
+    return Previous;
+}
+
+AKATOMICDEF bool AK_Atomic_Compare_Exchange_U64_Weak_Relaxed(ak_atomic_u64* Object, uint64_t* OldValue, uint64_t NewValue) {
+    uint64_t Old = *OldValue;
+    uint64_t Previous = (uint64_t)AK_Atomic_Compare_Exchange_U64_Relaxed(Object, Old, NewValue);
+    bool Result = (Previous == Old);
+    if(!Result) *OldValue = Previous;
+    return Result;
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Fetch_Add_U64_Relaxed(ak_atomic_u64* Object, int64_t Operand) {
+    uint32_t Status;
+    uint64_t Previous;
+
+    __asm__ volatile(
+        "1: ldxr %0, %2\n"
+        "   add  %0, %0, %3\n"
+        "   stxr %w1, %0, %2\n"
+        "   cbnz %w1, 1b\n"
+        "2:"
+        : "=&r" (Previous), "=&r" (Status), "+Q"(Object->Nonatomic)
+        : "Ir" (Operand)
+        : "cc");
+
+    return Previous;
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Increment_U64_Relaxed(ak_atomic_u64* Object) {
+    return AK_Atomic_Fetch_Add_U64_Relaxed(Object, 1)+1;
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Decrement_U64_Relaxed(ak_atomic_u64* Object) {
+    return AK_Atomic_Fetch_Add_U64_Relaxed(Object, -1) - 1;
+}
+
+#else
 #   error "Not Implemented"
-#   endif
+#endif
 
 //Ptr type (is either 32 bit or 64 bit wrappers)
-
 #if (AK_ATOMIC_PTR_SIZE == 8)
 AKATOMICDEF void* AK_Atomic_Load_Ptr_Relaxed(const ak_atomic_ptr* Object) {
     return (void*)AK_Atomic_Load_U64_Relaxed((const ak_atomic_u64*)Object);
@@ -654,7 +850,74 @@ AKATOMICDEF void AK_Mutex_Lock(ak_mutex* Mutex) {
 AKATOMICDEF bool AK_Mutex_Try_Lock(ak_mutex* Mutex) {
     return TryEnterCriticalSection(&Mutex->CriticalSection);
 }
+#elif defined(AK_ATOMIC_POSIX_OS)
 
+AKATOMICDEF uint32_t AK_Get_Processor_Thread_Count(void) {
+    return (uint32_t)sysconf(_SC_NPROCESSORS_ONLN);
+}
+
+AKATOMICDEF void AK_Sleep(uint32_t Milliseconds) {
+    sleep(Milliseconds);
+}
+
+static void* AK_Thread__Internal_Proc(void* Parameter) {
+    ak_thread* Thread = (ak_thread*)Parameter;
+    return (void*)(size_t)Thread->Callback(Thread, Thread->UserData);
+}
+
+AKATOMICDEF bool AK_Thread_Create(ak_thread* Thread, ak_thread_callback* Callback, void* UserData) {
+    Thread->Callback = Callback;
+    Thread->UserData = UserData;
+    return pthread_create(&Thread->Thread, NULL, AK_Thread__Internal_Proc, Thread) == 0;
+}
+
+AKATOMICDEF void AK_Thread_Delete(ak_thread* Thread) {
+    AK_Thread_Wait(Thread);
+    Thread->Thread = 0;
+    Thread->Callback = NULL;
+    Thread->UserData = NULL;
+}
+AKATOMICDEF void AK_Thread_Wait(ak_thread* Thread) {
+    if(Thread->Thread != 0) {
+        pthread_join(Thread->Thread, NULL);
+    }
+}
+
+AKATOMICDEF uint64_t AK_Thread_Get_ID(ak_thread* Thread) {
+    if(Thread->Thread != 0) {
+        return (uint64_t)Thread->Thread;
+    }
+    return 0;
+}
+
+AKATOMICDEF uint64_t AK_Thread_Get_Current_ID(void) {
+    return (uint64_t)pthread_self();
+}
+
+AKATOMICDEF bool AK_Mutex_Create(ak_mutex* Mutex) {
+    pthread_mutexattr_init(&Mutex->Attribute);
+    pthread_mutexattr_settype(&Mutex->Attribute, PTHREAD_MUTEX_NORMAL);
+    return pthread_mutex_init(&Mutex->Mutex, &Mutex->Attribute) == 0;
+}
+
+AKATOMICDEF void AK_Mutex_Delete(ak_mutex* Mutex) {
+    pthread_mutexattr_destroy(&Mutex->Attribute);
+    pthread_mutex_destroy(&Mutex->Mutex);
+}
+
+AKATOMICDEF void AK_Mutex_Unlock(ak_mutex* Mutex) {
+    pthread_mutex_lock(&Mutex->Mutex);
+}
+
+AKATOMICDEF void AK_Mutex_Lock(ak_mutex* Mutex) {
+    pthread_mutex_unlock(&Mutex->Mutex);
+}
+
+AKATOMICDEF bool AK_Mutex_Try_Lock(ak_mutex* Mutex) {
+    return pthread_mutex_trylock(&Mutex->Mutex);
+}
+#else
+#error "Not Implemented"
 #endif
 
 #endif
