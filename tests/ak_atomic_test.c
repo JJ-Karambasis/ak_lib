@@ -97,6 +97,7 @@ int32_t AK_Atomic_Store_And_Load_Thread_Callback_U64(ak_thread* Thread, void* Us
 //For this test we want to make sure loads and stores are done in certain
 //orders via barriers. Before jobs are ran, 0 is filled in for X and Y 
 //In the above job we assign
+//Only case where x86 can reorder instructions is during store then loads
 UTEST(AK_Atomic, StoreAndLoad64) {
     const uint32_t Iterations = 1000;
 
