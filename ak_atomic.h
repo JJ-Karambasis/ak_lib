@@ -364,8 +364,7 @@ AKATOMICDEF uint32_t AK_Atomic_Exchange_U32_Relaxed(ak_atomic_u32* Object, uint3
     __asm__ volatile(
         "1: ldxr %w0, %2\n"
         "   stxr %w1, %w3, %2\n"
-        "   cmp  %w1, #0\n"
-        "   b.ne 1b\n"
+        "   cbnz %w1, 1b\n"
         "2:"
         : "=&r" (Previous), "=&r" (Status), "+Q"(Object->Nonatomic)
         : "r"(NewValue)
@@ -439,8 +438,7 @@ AKATOMICDEF uint64_t AK_Atomic_Exchange_U64_Relaxed(ak_atomic_u64* Object, uint6
     __asm__ volatile(
         "1: ldxr %0, %2\n"
         "   stxr %w1, %3, %2\n"
-        "   cmp  %w1, #0\n"
-        "   b.ne 1b\n"
+        "   cbnz %w1, 1b\n"
         "2:"
         : "=&r" (Previous), "=&r" (Status), "+Q"(Object->Nonatomic)
         : "r"(NewValue)
