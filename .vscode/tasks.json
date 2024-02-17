@@ -7,8 +7,20 @@
             "label": "Build Win32",
             "type": "shell",
             "windows": {
-                "command": "${workspaceFolder}/build/build.bat",
+                "command": "${workspaceFolder}/build/build.bat release",
                 "problemMatcher": "$msCompile"
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            }
+        },
+        {
+            "label": "Build Android",
+            "type": "shell",
+            "windows": {
+                "command": "${workspaceFolder}/build/build_android.bat release",
+                "problemMatcher": "$gcc"
             },
             "group": {
                 "kind": "build",
@@ -24,7 +36,7 @@
             },
             "group": {
                 "kind": "build",
-                "isDefault": true
+                "isDefault": false
             }
         }
     ]

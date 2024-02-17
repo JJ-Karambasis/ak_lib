@@ -36,7 +36,7 @@ int32_t AK_Atomic_Store_And_Load_Thread_Callback_U32(ak_thread* Thread, void* Us
 //orders via barriers. Before jobs are ran, 0 is filled in for X and Y 
 //In the above job we assign
 UTEST(AK_Atomic, StoreAndLoad32) {
-    const uint32_t Iterations = 10000;
+    const uint32_t Iterations = 100000;
 
     uint32_t i;
     for(i = 0; i < Iterations; i++) {
@@ -100,7 +100,7 @@ int32_t AK_Atomic_Store_And_Load_Thread_Callback_U64(ak_thread* Thread, void* Us
 //In the above job we assign
 //Only case where x86 can reorder instructions is during store then loads
 UTEST(AK_Atomic, StoreAndLoad64) {
-    const uint32_t Iterations = 10000;
+    const uint32_t Iterations = 100000;
 
     uint32_t i;
     for(i = 0; i < Iterations; i++) {
@@ -192,10 +192,16 @@ UTEST(AK_Atomic, LoadAndStore32) {
     ak_atomic_load_store_test_thread_data_u32 ThreadData1 = {0};
     ThreadData1.Data = &TestData;
     ThreadData1.Index = 0;
+    ThreadData1.Values = LoadStoreValues;
+    ThreadData1.Iterations = Iterations;
+    ThreadData1.Limit = Limit;
 
     ak_atomic_load_store_test_thread_data_u32 ThreadData2 = {0};
     ThreadData2.Data = &TestData;
     ThreadData2.Index = 1;
+    ThreadData2.Values = LoadStoreValues;
+    ThreadData2.Iterations = Iterations;
+    ThreadData2.Limit = Limit;
 
     ak_thread Thread1, Thread2;
     ASSERT_TRUE(AK_Thread_Create(&Thread1, AK_Atomic_Load_And_Store_Thread_Callback_U32, &ThreadData1));
@@ -274,10 +280,16 @@ UTEST(AK_Atomic, LoadAndStore64) {
     ak_atomic_load_store_test_thread_data_u64 ThreadData1 = {0};
     ThreadData1.Data = &TestData;
     ThreadData1.Index = 0;
+    ThreadData1.Values = LoadStoreValues;
+    ThreadData1.Iterations = Iterations;
+    ThreadData1.Limit = Limit;
 
     ak_atomic_load_store_test_thread_data_u64 ThreadData2 = {0};
     ThreadData2.Data = &TestData;
     ThreadData2.Index = 1;
+    ThreadData2.Values = LoadStoreValues;
+    ThreadData2.Iterations = Iterations;
+    ThreadData2.Limit = Limit;
 
     ak_thread Thread1, Thread2;
     ASSERT_TRUE(AK_Thread_Create(&Thread1, AK_Atomic_Load_And_Store_Thread_Callback_U64, &ThreadData1));
@@ -322,7 +334,7 @@ int32_t AK_Exchange_Thread_Callback_U32(ak_thread* Thread, void* UserData) {
 }
 
 UTEST(AK_Atomic, Exchange32) {
-    static const uint32_t ValuesPerThread = 100000;
+    static const uint32_t ValuesPerThread = 5000000;
     uint32_t NumThreads = AK_Get_Processor_Thread_Count();
     uint32_t NumValues = (ValuesPerThread*NumThreads)+1;
     uint32_t* ValuesSeen = malloc(sizeof(uint32_t)*NumValues);
@@ -399,7 +411,7 @@ int32_t AK_Exchange_Thread_Callback_U64(ak_thread* Thread, void* UserData) {
 }
 
 UTEST(AK_Atomic, Exchange64) {
-    static const uint64_t ValuesPerThread = 100000;
+    static const uint64_t ValuesPerThread = 5000000;
     uint64_t NumThreads = AK_Get_Processor_Thread_Count();
     uint64_t NumValues = (ValuesPerThread*NumThreads)+1;
     uint64_t* ValuesSeen = malloc(sizeof(uint64_t)*NumValues);
@@ -445,22 +457,21 @@ UTEST(AK_Atomic, Exchange64) {
     free(ValuesSeen);
 }
 
-typedef struct {
+typedef struct ak_atomic_compare_exchange_thread_data_u32 {
     uint32_t Iterations;
     ak_atomic_u32 Flag;
     uint32_t SharedValue;
+    uint32_t Padding;
 } ak_atomic_compare_exchange_thread_data_u32;
 
 int32_t AK_Compare_Exchange_Thread_Callback_U32(ak_thread* Thread, void* UserData) {
     ak_atomic_compare_exchange_thread_data_u32* ThreadData = (ak_atomic_compare_exchange_thread_data_u32*)UserData;
     uint32_t Count = 0;
     while(Count < ThreadData->Iterations) {
-        if(AK_Atomic_Compare_Exchange_Bool_U32_Relaxed(&ThreadData->Flag, 0, 1)) {
-            AK_Atomic_Thread_Fence_Acq();
+        if(AK_Atomic_Compare_Exchange_Bool_U32(&ThreadData->Flag, 0, 1, AK_ATOMIC_MEMORY_ORDER_ACQ_REL)) {
             ThreadData->SharedValue++;
-            AK_Atomic_Thread_Fence_Rel();
-            AK_Atomic_Store_U32_Relaxed(&ThreadData->Flag, 0);
             Count++;
+            AK_Atomic_Store_U32(&ThreadData->Flag, 0, AK_ATOMIC_MEMORY_ORDER_RELEASE);
         }
     }
     return 0;
@@ -471,8 +482,10 @@ UTEST(AK_Atomic, CompareExchange32) {
     uint32_t NumThreads = AK_Get_Processor_Thread_Count();
     ak_atomic_compare_exchange_thread_data_u32 ThreadData = {0};
     ThreadData.Iterations = Iterations;
-
+    
     ak_thread* Threads = (ak_thread*)malloc(sizeof(ak_thread)*NumThreads);
+    memset(Threads, 0, sizeof(ak_thread)*NumThreads);
+
     uint32_t i;
     for(i = 0; i < NumThreads; i++) {
         AK_Thread_Create(&Threads[i], AK_Compare_Exchange_Thread_Callback_U32, &ThreadData);
@@ -501,12 +514,10 @@ int32_t AK_Compare_Exchange_Thread_Callback_U64(ak_thread* Thread, void* UserDat
     ak_atomic_compare_exchange_thread_data_u64* ThreadData = (ak_atomic_compare_exchange_thread_data_u64*)UserData;
     uint32_t Count = 0;
     while(Count < ThreadData->Iterations) {
-        if(AK_Atomic_Compare_Exchange_Bool_U64_Relaxed(&ThreadData->Flag, 0, 1)) {
-            AK_Atomic_Thread_Fence_Acq();
+        if(AK_Atomic_Compare_Exchange_Bool_U64(&ThreadData->Flag, 0, 1, AK_ATOMIC_MEMORY_ORDER_ACQ_REL)) {
             ThreadData->SharedValue++;
-            AK_Atomic_Thread_Fence_Rel();
-            AK_Atomic_Store_U64_Relaxed(&ThreadData->Flag, 0);
             Count++;
+            AK_Atomic_Store_U64(&ThreadData->Flag, 0, AK_ATOMIC_MEMORY_ORDER_RELEASE);
         }
     }
     return 0;
@@ -519,6 +530,8 @@ UTEST(AK_Atomic, CompareExchange64) {
     ThreadData.Iterations = Iterations;
 
     ak_thread* Threads = (ak_thread*)malloc(sizeof(ak_thread)*NumThreads);
+    memset(Threads, 0, sizeof(ak_thread)*NumThreads);
+
     uint32_t i;
     for(i = 0; i < NumThreads; i++) {
         AK_Thread_Create(&Threads[i], AK_Compare_Exchange_Thread_Callback_U64, &ThreadData);
@@ -579,7 +592,7 @@ int32_t AK_Fetch_Add_Decrement_Thread_Callback_U32(ak_thread* Thread, void* User
 }
 
 UTEST(AK_Atomic, Increment32) {
-    const uint32_t Iterations = 100000;
+    const uint32_t Iterations = 5000000;
     uint32_t NumThreads = AK_Get_Processor_Thread_Count();
 
     ak_atomic_increment_test_data_u32 TestData = {0};
@@ -679,7 +692,7 @@ int32_t AK_Fetch_Add_Decrement_Thread_Callback_U64(ak_thread* Thread, void* User
 }
 
 UTEST(AK_Atomic, Increment64) {
-    const uint32_t Iterations = 100000;
+    const uint32_t Iterations = 5000000;
     uint32_t NumThreads = AK_Get_Processor_Thread_Count();
 
     ak_atomic_increment_test_data_u64 TestData = {0};
@@ -768,7 +781,7 @@ int32_t AK_Compare_Exchange_Thread_Callback_Ptr(ak_thread* Thread, void* UserDat
 }
 
 UTEST(AK_Atomic, CompareExchangePtr) {
-    static const uint32_t Iterations = 2000000;
+    static const uint32_t Iterations = 5000000;
     uint32_t NumThreads = AK_Get_Processor_Thread_Count();
 
     ak_atomic_compare_exchange_node* Nodes = (ak_atomic_compare_exchange_node*)malloc(sizeof(ak_atomic_compare_exchange_node)*NumThreads*Iterations);
@@ -799,7 +812,7 @@ UTEST(AK_Atomic, CompareExchangePtr) {
         Count++;
         Node = (ak_atomic_compare_exchange_node*)ListHead.Nonatomic;
     }
-    ASSERT_EQ(Count, 2000000*NumThreads);
+    ASSERT_EQ(Count, Iterations*NumThreads);
 
     for(ThreadIndex = 0; ThreadIndex < NumThreads; ThreadIndex++) {
         AK_Thread_Delete(&Threads[ThreadIndex]);
@@ -810,7 +823,9 @@ UTEST(AK_Atomic, CompareExchangePtr) {
     free(Nodes);
 }
 
+#ifndef ANDROID_BUILD
 UTEST_MAIN()
+#endif
 
 #define AK_ATOMIC_IMPLEMENTATION
 #include <ak_atomic.h>

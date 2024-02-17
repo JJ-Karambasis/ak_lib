@@ -18,7 +18,11 @@ extern "C" {
 #elif defined(__GNUC__)
 #   define AK_ATOMIC_GCC_COMPILER
 #   define AK_ATOMIC_POSIX_OS
-#   if defined(__aarch64__)
+
+#   if defined(__arm__)
+#       define AK_ATOMIC_ARM_CPU
+#       define AK_ATOMIC_PTR_SIZE 4
+#   elif defined(__aarch64__)
 #       define AK_ATOMIC_AARCH64_CPU
 #       define AK_ATOMIC_PTR_SIZE 8
 #   endif
@@ -74,7 +78,7 @@ typedef struct ak_atomic_ptr {
 #define AK_Atomic_Thread_Fence_Rel() _WriteBarrier()
 #define AK_Atomic_Thread_Fence_Seq_Cst() MemoryBarrier()
 
-#elif defined(AK_ATOMIC_GCC_COMPILER) && defined(AK_ATOMIC_AARCH64_CPU)
+#elif defined(AK_ATOMIC_GCC_COMPILER) && (defined(AK_ATOMIC_AARCH64_CPU) || defined(AK_ATOMIC_ARM_CPU))
 
 //Atomic operators on this architecture need to be aligned properly
 
@@ -498,6 +502,162 @@ AKATOMICDEF uint64_t AK_Atomic_Decrement_U64_Relaxed(ak_atomic_u64* Object) {
     return AK_Atomic_Fetch_Add_U64_Relaxed(Object, -1) - 1;
 }
 
+#elif defined(AK_ATOMIC_GCC_COMPILER) && defined(AK_ATOMIC_ARM_CPU)
+
+AKATOMICDEF uint32_t AK_Atomic_Load_U32_Relaxed(const ak_atomic_u32* Object) {
+    return Object->Nonatomic;
+}
+
+AKATOMICDEF void AK_Atomic_Store_U32_Relaxed(ak_atomic_u32* Object, uint32_t Value) {
+    Object->Nonatomic = Value;
+}
+
+AKATOMICDEF uint32_t AK_Atomic_Exchange_U32_Relaxed(ak_atomic_u32* Object, uint32_t NewValue) {
+    uint32_t Status;
+    uint32_t Previous;
+    __asm__ volatile(
+        "1: ldrex %0, [%3]\n"
+        "   strex %1, %4, [%3]\n"
+        "   cmp   %1, #0\n"
+        "   bne   1b\n"
+        "2:"
+        : "=&r" (Previous), "=&r" (Status), "+Q"(Object->Nonatomic)
+        : "r"(Object), "r"(NewValue)
+        : "cc");
+    
+    return Previous;
+}
+
+AKATOMICDEF uint32_t AK_Atomic_Compare_Exchange_U32_Relaxed(ak_atomic_u32* Object, uint32_t OldValue, uint32_t NewValue) {
+    size_t Status;
+    uint32_t Previous;
+
+    __asm__ volatile(
+        "1: ldrex %0, [%3]\n"
+        "   cmp   %0, %4\n"
+        "   bne   2f\n"
+        "   strex %1, %5, [%3]\n"
+        "   cmp   %1, #0\n"
+        "   bne   1b\n"
+        "2:"
+        : "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic)
+        : "r"(Object), "Ir" (OldValue), "r" (NewValue)
+        : "cc");
+
+    return Previous;
+}
+
+AKATOMICDEF bool AK_Atomic_Compare_Exchange_U32_Weak_Relaxed(ak_atomic_u32* Object, uint32_t* OldValue, uint32_t NewValue) {
+    uint32_t Old = *OldValue;
+    uint32_t Previous = (uint32_t)AK_Atomic_Compare_Exchange_U32_Relaxed(Object, Old, NewValue);
+    bool Result = (Previous == Old);
+    if(!Result) *OldValue = Previous;
+    return Result;
+}
+
+AKATOMICDEF uint32_t AK_Atomic_Fetch_Add_U32_Relaxed(ak_atomic_u32* Object, int32_t Operand) {
+    uint32_t Status;
+    uint32_t Previous;
+
+    __asm__ volatile(
+        "1: ldrex %0, [%3]\n"
+        "   add   %0, %4\n"
+        "   strex %1, %0, [%3]\n"
+        "   cmp   %1, #0\n"
+        "   bne   1b\n"
+        "2:"
+        : "=&r" (Previous), "=&r" (Status), "+Q"(Object->Nonatomic)
+        : "r"(Object), "Ir" (Operand)
+        : "cc");
+
+    return Previous;
+}
+
+AKATOMICDEF uint32_t AK_Atomic_Increment_U32_Relaxed(ak_atomic_u32* Object) {
+    return AK_Atomic_Fetch_Add_U32_Relaxed(Object, 1)+1;
+}
+
+AKATOMICDEF uint32_t AK_Atomic_Decrement_U32_Relaxed(ak_atomic_u32* Object) {
+    return AK_Atomic_Fetch_Add_U32_Relaxed(Object, -1) - 1;
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Load_U64_Relaxed(const ak_atomic_u64* Object) {
+    return Object->Nonatomic;
+}
+
+AKATOMICDEF void AK_Atomic_Store_U64_Relaxed(ak_atomic_u64* Object, uint64_t Value) {
+    Object->Nonatomic = Value;
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Exchange_U64_Relaxed(ak_atomic_u64* Object, uint64_t NewValue) {
+    uint32_t Status;
+    uint64_t Previous;
+    __asm__ volatile(
+        "1: ldrexd %0, [%3]\n"
+        "   strexd %1, %4, [%3]\n"
+        "   cmp    %1, #0\n"
+        "   bne    1b\n"
+        "2:"
+        : "=&r" (Previous), "=&r" (Status), "+Q"(Object->Nonatomic)
+        : "r"(Object), "r"(NewValue)
+        : "cc");
+    
+    return Previous;
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Compare_Exchange_U64_Relaxed(ak_atomic_u64* Object, uint64_t OldValue, uint64_t NewValue) {
+    size_t Status;
+    uint64_t Previous;
+
+    __asm__ volatile(
+        "1: ldrexd %0, [%3]\n"
+        "   cmp    %0, %4\n"
+        "   bne    2f\n"
+        "   strexd %1, %5, [%3]\n"
+        "   cmp    %1, #0\n"
+        "   bne    1b\n"
+        "2:"
+        : "=&r" (Previous), "=&r" (Status), "+Q"(Object->Nonatomic)
+        : "r"(Object), "Ir" (OldValue), "r" (NewValue)
+        : "cc");
+
+    return Previous;
+}
+
+AKATOMICDEF bool AK_Atomic_Compare_Exchange_U64_Weak_Relaxed(ak_atomic_u64* Object, uint64_t* OldValue, uint64_t NewValue) {
+    uint64_t Old = *OldValue;
+    uint64_t Previous = (uint64_t)AK_Atomic_Compare_Exchange_U64_Relaxed(Object, Old, NewValue);
+    bool Result = (Previous == Old);
+    if(!Result) *OldValue = Previous;
+    return Result;
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Fetch_Add_U64_Relaxed(ak_atomic_u64* Object, int64_t Operand) {
+    uint32_t Status;
+    uint64_t Previous;
+
+    __asm__ volatile(
+        "1: ldrexd %0, [%3]\n"
+        "   add    %0, %4\n"
+        "   strexd %1, %0, [%3]\n"
+        "   cmp    %1, #0\n"
+        "   bne    1b\n"
+        "2:"
+        : "=&r" (Previous), "=&r" (Status), "+Q"(Object->Nonatomic)
+        : "r"(Object), "Ir" (Operand)
+        : "cc");
+
+    return Previous;
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Increment_U64_Relaxed(ak_atomic_u64* Object) {
+    return AK_Atomic_Fetch_Add_U64_Relaxed(Object, 1)+1;
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Decrement_U64_Relaxed(ak_atomic_u64* Object) {
+    return AK_Atomic_Fetch_Add_U64_Relaxed(Object, -1) - 1;
+}
+
 #else
 #   error "Not Implemented"
 #endif
@@ -878,6 +1038,7 @@ AKATOMICDEF void AK_Thread_Delete(ak_thread* Thread) {
 AKATOMICDEF void AK_Thread_Wait(ak_thread* Thread) {
     if(Thread->Thread != 0) {
         pthread_join(Thread->Thread, NULL);
+        Thread->Thread = 0;
     }
 }
 
