@@ -1,3 +1,9 @@
+/*We need to compile in c89 to make sure our library can support that 
+  version (best language version for porting) but utest.h requires 
+  some c99 stdio/stdlib values
+*/
+#define _ISOC99_SOURCE 
+#include <features.h>
 #include <ak_atomic.h>
 #include "utest.h"
 
@@ -18,12 +24,12 @@ int32_t AK_Atomic_Store_And_Load_Thread_Callback_U32(ak_thread* Thread, void* Us
     ak_atomic_store_load_test_data_u32* TestData = ThreadData->Data;
 
     if(ThreadData->Index == 0) {
-        while(rand() % 8 != 0) { } //random delay
+        while(rand() % 8 != 0) { } /*random delay*/
         AK_Atomic_Store_U32_Relaxed(&TestData->X, 1);
         AK_Atomic_Thread_Fence_Seq_Cst();
         TestData->R1 = AK_Atomic_Load_U32_Relaxed(&TestData->Y);
     } else {
-        while(rand() % 8 != 0) { } //random delay
+        while(rand() % 8 != 0) { } /*random delay*/
         AK_Atomic_Store_U32_Relaxed(&TestData->Y, 1);
         AK_Atomic_Thread_Fence_Seq_Cst();
         TestData->R2 = AK_Atomic_Load_U32_Relaxed(&TestData->X);
@@ -32,9 +38,11 @@ int32_t AK_Atomic_Store_And_Load_Thread_Callback_U32(ak_thread* Thread, void* Us
     return 0;
 }
 
-//For this test we want to make sure loads and stores are done in certain
-//orders via barriers. Before jobs are ran, 0 is filled in for X and Y 
-//In the above job we assign
+/*
+For this test we want to make sure loads and stores are done in certain
+orders via barriers. Before jobs are ran, 0 is filled in for X and Y 
+In the above job we assign
+*/
 UTEST(AK_Atomic, StoreAndLoad32) {
     const uint32_t Iterations = 100000;
 
@@ -81,12 +89,12 @@ int32_t AK_Atomic_Store_And_Load_Thread_Callback_U64(ak_thread* Thread, void* Us
     ak_atomic_store_load_test_data_u64* TestData = ThreadData->Data;
 
     if(ThreadData->Index == 0) {
-        while(rand() % 8 != 0) { } //random delay
+        while(rand() % 8 != 0) { } /*random delay*/
         AK_Atomic_Store_U64_Relaxed(&TestData->X, 1);
         AK_Atomic_Thread_Fence_Seq_Cst();
         TestData->R1 = AK_Atomic_Load_U64_Relaxed(&TestData->Y);
     } else {
-        while(rand() % 8 != 0) { } //random delay
+        while(rand() % 8 != 0) { } /*random delay*/
         AK_Atomic_Store_U64_Relaxed(&TestData->Y, 1);
         AK_Atomic_Thread_Fence_Seq_Cst();
         TestData->R2 = AK_Atomic_Load_U64_Relaxed(&TestData->X);
@@ -95,10 +103,12 @@ int32_t AK_Atomic_Store_And_Load_Thread_Callback_U64(ak_thread* Thread, void* Us
     return 0;
 }
 
-//For this test we want to make sure loads and stores are done in certain
-//orders via barriers. Before jobs are ran, 0 is filled in for X and Y 
-//In the above job we assign
-//Only case where x86 can reorder instructions is during store then loads
+/*
+For this test we want to make sure loads and stores are done in certain
+orders via barriers. Before jobs are ran, 0 is filled in for X and Y 
+In the above job we assign
+Only case where x86 can reorder instructions is during store then loads
+*/
 UTEST(AK_Atomic, StoreAndLoad64) {
     const uint32_t Iterations = 100000;
 
@@ -145,22 +155,22 @@ int32_t AK_Atomic_Load_And_Store_Thread_Callback_U32(ak_thread* Thread, void* Us
     ak_atomic_load_store_test_thread_data_u32* ThreadData = (ak_atomic_load_store_test_thread_data_u32*)UserData;
     ak_atomic_load_store_test_data_u32* TestData = ThreadData->Data;
 
-    //The processor (even on x86) can delay the stores until after
-    //the loads without the processor fence. Compiler fence is not enough
+    /*
+    The processor (even on x86) can delay the stores until after
+    the loads without the processor fence. Compiler fence is not enough
+    */
     if(ThreadData->Index == 0) {
         uint32_t Index = 0;
 
         uint32_t i;
         for(i = 0; i < ThreadData->Iterations; i++) {
-            Index = (Index*Index+1) % 65521; //Make it a little random
+            Index = (Index*Index+1) % 65521; /*Make it a little random*/
             uint32_t Value = ThreadData->Values[Index & 7];
-            //Compiler_Fence_Release(); //Prevent compiler from hosting the store out of the loop
             AK_Atomic_Store_U32_Relaxed(&TestData->SharedInt, Value);
         }
     } else {
         uint32_t i;
         for(i = 0; i < ThreadData->Iterations; i++) {
-            //Compiler_Fence_Acquire(); //Prevent compiler from hosting the load out of the loop
             uint32_t Value = AK_Atomic_Load_U32_Relaxed(&TestData->SharedInt);
             if((Value*Value) < ThreadData->Limit) {
                 TestData->Success = false;
@@ -233,22 +243,22 @@ int32_t AK_Atomic_Load_And_Store_Thread_Callback_U64(ak_thread* Thread, void* Us
     ak_atomic_load_store_test_thread_data_u64* ThreadData = (ak_atomic_load_store_test_thread_data_u64*)UserData;
     ak_atomic_load_store_test_data_u64* TestData = ThreadData->Data;
 
-    //The processor (even on x86) can delay the stores until after
-    //the loads without the processor fence. Compiler fence is not enough
+    /*
+    The processor (even on x86) can delay the stores until after
+    the loads without the processor fence. Compiler fence is not enough
+    */
     if(ThreadData->Index == 0) {
         uint32_t Index = 0;
 
         uint32_t i;
         for(i = 0; i < ThreadData->Iterations; i++) {
-            Index = (Index*Index+1) % 65521; //Make it a little random
+            Index = (Index*Index+1) % 65521; /*Make it a little random*/
             uint64_t Value = ThreadData->Values[Index & 7];
-            //Compiler_Fence_Release(); //Prevent compiler from hosting the store out of the loop
             AK_Atomic_Store_U64_Relaxed(&TestData->SharedInt, Value);
         }
     } else {
         uint32_t i;
         for(i = 0; i < ThreadData->Iterations; i++) {
-            //Compiler_Fence_Acquire(); //Prevent compiler from hosting the load out of the loop
             uint64_t Value = AK_Atomic_Load_U64_Relaxed(&TestData->SharedInt);
             if((Value*Value) < ThreadData->Limit) {
                 TestData->Success = false;

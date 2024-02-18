@@ -24,7 +24,7 @@
             },
             "group": {
                 "kind": "build",
-                "isDefault": true
+                "isDefault": false
             }
         },
         {
@@ -37,6 +37,18 @@
             "group": {
                 "kind": "build",
                 "isDefault": false
+            }
+        }, 
+        {
+            "label": "Build Linux",
+            "type": "shell",
+            "linux": {
+                "command": "${workspaceFolder}/build/build_linux.sh release",
+                "problemMatcher": "$gcc",
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
             }
         }
     ]

@@ -144,9 +144,11 @@ typedef uint32_t utest_uint32_t;
 #if defined(_WINDOWS_) || defined(_WINDOWS_H)
 typedef LARGE_INTEGER utest_large_integer;
 #else
-// use old QueryPerformanceCounter definitions (not sure is this needed in some
-// edge cases or not) on Win7 with VS2015 these extern declaration cause "second
-// C linkage of overloaded function not allowed" error
+/*
+use old QueryPerformanceCounter definitions (not sure is this needed in some
+edge cases or not) on Win7 with VS2015 these extern declaration cause "second
+C linkage of overloaded function not allowed" error
+*/
 typedef union {
   struct {
     unsigned long LowPart;
@@ -190,7 +192,7 @@ UTEST_C_FUNC __declspec(dllimport) int __stdcall QueryPerformanceFrequency(
 #include <sys/syscall.h>
 #include <unistd.h>
 #endif
-#else // Other libc implementations
+#else /* Other libc implementations */
 #include <time.h>
 #define UTEST_USE_CLOCKGETTIME
 #endif
@@ -694,9 +696,10 @@ utest_type_printer(long long unsigned int i) {
 #if defined(_MSC_VER)
 #define UTEST_STRNCPY(x, y, size) strcpy_s(x, size, y)
 #elif !defined(__clang__) && defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
 static UTEST_INLINE char *
 utest_strncpy_gcc(char *const dst, const char *const src, const size_t size) {
-#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wstringop-overflow"
   return strncpy(dst, src, size);
 #pragma GCC diagnostic pop
@@ -1113,7 +1116,7 @@ utest_strncpy_gcc(char *const dst, const char *const src, const size_t size) {
 #elif defined(__GNUC__) && __GNUC__ >= 8 && defined(__cplusplus)
 #define UTEST_SURPRESS_WARNINGS_BEGIN                                          \
   _Pragma("GCC diagnostic push")                                               \
-      _Pragma("GCC diagnostic ignored \"-Wclass-memaccess\"")
+  _Pragma("GCC diagnostic ignored \"-Wclass-memaccess\"")                      \
 #define UTEST_SURPRESS_WARNINGS_END _Pragma("GCC diagnostic pop")
 #else
 #define UTEST_SURPRESS_WARNINGS_BEGIN
@@ -1452,10 +1455,12 @@ int utest_main(int argc, const char *const argv[]) {
                                   strlen(random_order_str))) {
       const utest_int64_t ns = utest_ns();
 
-      // Some really poor pseudo-random using the current time. I do this
-      // because I really want to avoid using C's rand() because that'd mean our
-      // random would be affected by any srand() usage by the user (which I
-      // don't want).
+      /*
+      Some really poor pseudo-random using the current time. I do this
+      because I really want to avoid using C's rand() because that'd mean our
+      random would be affected by any srand() usage by the user (which I
+      don't want).
+      */
       seed = UTEST_CAST(utest_uint32_t, ns >> 32) * 31 +
              UTEST_CAST(utest_uint32_t, ns & 0xffffffff);
       random_order = 1;
@@ -1463,22 +1468,24 @@ int utest_main(int argc, const char *const argv[]) {
   }
 
   if (random_order) {
-    // Use Fisher-Yates with the Durstenfield's version to randomly re-order the
-    // tests.
+    /*
+     Use Fisher-Yates with the Durstenfield's version to randomly re-order the
+    tests.
+    */
     for (index = utest_state.tests_length; index > 1; index--) {
-      // For the random order we'll use PCG.
+      /* For the random order we'll use PCG. */
       const utest_uint32_t state = seed;
       const utest_uint32_t word =
           ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
       const utest_uint32_t next =
           ((word >> 22u) ^ word) % UTEST_CAST(utest_uint32_t, index);
 
-      // Swap the randomly chosen element into the last location.
+      /* Swap the randomly chosen element into the last location. */
       const struct utest_test_state_s copy = utest_state.tests[index - 1];
       utest_state.tests[index - 1] = utest_state.tests[next];
       utest_state.tests[next] = copy;
 
-      // Move the seed onwards.
+      /* Move the seed onwards. */
       seed = seed * 747796405u + 2891336453u;
     }
   }
@@ -1543,7 +1550,7 @@ int utest_main(int argc, const char *const argv[]) {
       fprintf(utest_state.output, "</testcase>\n");
     }
 
-    // Record the failing test.
+    /* Record the failing test. */
     if (UTEST_TEST_FAILURE == result) {
       const size_t failed_testcase_index = failed_testcases_length++;
       failed_testcases = UTEST_PTR_CAST(

@@ -25,6 +25,14 @@ extern "C" {
 #   elif defined(__aarch64__)
 #       define AK_ATOMIC_AARCH64_CPU
 #       define AK_ATOMIC_PTR_SIZE 8
+#   elif defined(__x86_64__)
+#       define AK_ATOMIC_X86_64_CPU
+#       define AK_ATOMIC_PTR_SIZE 8   
+#   elif defined(__i386__)
+#       define AK_ATOMIC_X86_64_CPU
+#       define AK_ATOMIC_PTR_SIZE 4    
+#   else
+#   error "Not Implemented"
 #   endif
 #endif
 
@@ -41,13 +49,16 @@ extern "C" {
 #define AK_ATOMIC__COMPILE_TIME_ASSERT2(X,L) AK_ATOMIC__COMPILE_TIME_ASSERT3(X,L)
 #define AK_ATOMIC__COMPILE_TIME_ASSERT(X)    AK_ATOMIC__COMPILE_TIME_ASSERT2(X,__LINE__)
 
-//If stdint is not included for your platform, define AK_ATOMIC_CUSTOM_TYPES
-//and define the stdint types:
-//uint32_t -> 32 bit unsigned integer
-//int32_t -> 32 bit signed integer
-//uint64_t -> 64 bit unsigned integer
-//int64_t -> 64 bit signed integer
-//bool -> 8 bit signed integer
+/*
+If stdint is not included for your platform, define AK_ATOMIC_CUSTOM_TYPES
+and define the stdint types:
+-uint32_t -> 32 bit unsigned integer
+-int32_t -> 32 bit signed integer
+-uint64_t -> 64 bit unsigned integer
+-int64_t -> 64 bit signed integer
+-bool -> 8 bit signed integer
+*/
+
 #ifndef AK_ATOMIC_CUSTOM_TYPES
 #include <stdint.h>
 #include <stdbool.h>
@@ -102,6 +113,33 @@ typedef struct ak_atomic_ptr {
 #define AK_Atomic_Thread_Fence_Rel() __asm__ volatile("dmb ish" ::: "memory")
 #define AK_Atomic_Thread_Fence_Seq_Cst() __asm__ volatile("dmb ish" ::: "memory")
 
+#elif defined(AK_ATOMIC_GCC_COMPILER) && defined(AK_ATOMIC_X86_64_CPU)
+
+typedef struct ak_atomic_u32 {
+	volatile uint32_t Nonatomic;
+} __attribute__((aligned(4))) ak_atomic_u32;
+
+typedef struct ak_atomic_u64 {
+	volatile uint64_t Nonatomic;
+} __attribute__((aligned(8))) ak_atomic_u64;
+
+typedef struct ak_atomic_ptr {
+	volatile void* Nonatomic;
+} __attribute__((aligned(AK_ATOMIC_PTR_SIZE))) ak_atomic_ptr;
+
+#define AK_Atomic_Compiler_Fence_Acq() __asm__ volatile("" ::: "memory")
+#define AK_Atomic_Compiler_Fence_Rel() __asm__ volatile("" ::: "memory")
+#define AK_Atomic_Compiler_Fence_Seq_Cst() __asm__ volatile("" ::: "memory")
+
+#define AK_Atomic_Thread_Fence_Acq() __asm__ volatile("" ::: "memory")
+#define AK_Atomic_Thread_Fence_Rel() __asm__ volatile("" ::: "memory")
+
+#if AK_ATOMIC_PTR_SIZE == 8
+#define AK_Atomic_Thread_Fence_Seq_Cst() __asm__ volatile("lock; orl $0, (%%rsp)" ::: "memory")
+#else
+#define AK_Atomic_Thread_Fence_Seq_Cst() __asm__ volatile("lock; orl $0, (%%esp)" ::: "memory")
+#endif
+
 #else
 #error "Not Implemented"
 #endif
@@ -110,7 +148,7 @@ AK_ATOMIC__COMPILE_TIME_ASSERT(sizeof(ak_atomic_u32) == 4);
 AK_ATOMIC__COMPILE_TIME_ASSERT(sizeof(ak_atomic_u64) == 8);
 AK_ATOMIC__COMPILE_TIME_ASSERT(sizeof(ak_atomic_ptr) == AK_ATOMIC_PTR_SIZE);
 
-//Compiler specific functions (all other atomics are built ontop of these)
+/*Compiler specific functions (all other atomics are built ontop of these)*/
 AKATOMICDEF uint32_t AK_Atomic_Load_U32_Relaxed(const ak_atomic_u32* Object);
 AKATOMICDEF void     AK_Atomic_Store_U32_Relaxed(ak_atomic_u32* Object, uint32_t Value);
 AKATOMICDEF uint32_t AK_Atomic_Exchange_U32_Relaxed(ak_atomic_u32* Object, uint32_t NewValue);
@@ -129,14 +167,14 @@ AKATOMICDEF uint64_t  AK_Atomic_Fetch_Add_U64_Relaxed(ak_atomic_u64* Object, int
 AKATOMICDEF uint64_t  AK_Atomic_Increment_U64_Relaxed(ak_atomic_u64* Object);
 AKATOMICDEF uint64_t  AK_Atomic_Decrement_U64_Relaxed(ak_atomic_u64* Object);
 
-//Ptr type (is either 32 bit or 64 bit wrappers)
+/*Ptr type (is either 32 bit or 64 bit wrappers)*/
 AKATOMICDEF void* AK_Atomic_Load_Ptr_Relaxed(const ak_atomic_ptr* Object);
 AKATOMICDEF void  AK_Atomic_Store_Ptr_Relaxed(ak_atomic_ptr* Object, void* Value);
 AKATOMICDEF void* AK_Atomic_Exchange_Ptr_Relaxed(ak_atomic_ptr* Object, void* NewValue);
 AKATOMICDEF void* AK_Atomic_Compare_Exchange_Ptr_Relaxed(ak_atomic_ptr* Object, void* OldValue, void* NewValue);
 AKATOMICDEF bool  AK_Atomic_Compare_Exchange_Ptr_Weak_Relaxed(ak_atomic_ptr* Object, void** OldValue, void* NewValue);
 
-//Compare exchange for boolean results
+/*Compare exchange for boolean results*/
 AKATOMICDEF bool AK_Atomic_Compare_Exchange_Bool_U32_Relaxed(ak_atomic_u32* Object, uint32_t OldValue, uint32_t NewValue);
 AKATOMICDEF bool AK_Atomic_Compare_Exchange_Bool_U64_Relaxed(ak_atomic_u64* Object, uint64_t OldValue, uint64_t NewValue);
 AKATOMICDEF bool AK_Atomic_Compare_Exchange_Bool_Ptr_Relaxed(ak_atomic_ptr* Object, void* OldValue, void* NewValue);
@@ -148,7 +186,7 @@ typedef enum ak_atomic_memory_order {
     AK_ATOMIC_MEMORY_ORDER_ACQ_REL
 } ak_atomic_memory_order;
 
-//Atomic functions with memory order parameters
+/*Atomic functions with memory order parameters*/
 AKATOMICDEF uint32_t AK_Atomic_Load_U32(const ak_atomic_u32* Object, ak_atomic_memory_order MemoryOrder);
 AKATOMICDEF void     AK_Atomic_Store_U32(ak_atomic_u32* Object, uint32_t Value, ak_atomic_memory_order MemoryOrder);
 AKATOMICDEF uint32_t AK_Atomic_Exchange_U32(ak_atomic_u32* Object, uint32_t NewValue, ak_atomic_memory_order MemoryOrder);
@@ -176,7 +214,7 @@ AKATOMICDEF void* AK_Atomic_Compare_Exchange_Ptr(ak_atomic_ptr* Object, void* Ol
 AKATOMICDEF bool  AK_Atomic_Compare_Exchange_Ptr_Weak(ak_atomic_ptr* Object, void** OldValue, void* NewValue, ak_atomic_memory_order Success, ak_atomic_memory_order Failure);
 AKATOMICDEF bool  AK_Atomic_Compare_Exchange_Bool_Ptr(ak_atomic_ptr* Object, void* OldValue, void* NewValue, ak_atomic_memory_order MemoryOrder);
 
-//Thread primitives
+/*Thread primitives*/
 typedef struct ak_thread ak_thread;
 typedef int32_t ak_thread_callback(ak_thread* Thread, void* UserData);
 
@@ -194,9 +232,14 @@ typedef struct ak_mutex {
     CRITICAL_SECTION CriticalSection;
 } ak_mutex;
 
+typedef struct ak_semaphore {
+    HANDLE Semaphore;
+} ak_semaphore;
+
 #elif defined(AK_ATOMIC_POSIX_OS)
 
 #include <pthread.h>
+#include <semaphore.h>
 
 struct ak_thread {
     pthread_t Thread;
@@ -205,9 +248,12 @@ struct ak_thread {
 };
 
 typedef struct ak_mutex {
-    pthread_mutexattr_t Attribute;
     pthread_mutex_t Mutex;
 } ak_mutex;
+
+typedef struct ak_semaphore {
+    sem_t Semaphore;
+} ak_semaphore;
 
 #else
 #error "Not Implemented"
@@ -228,17 +274,23 @@ AKATOMICDEF void AK_Mutex_Unlock(ak_mutex* Mutex);
 AKATOMICDEF void AK_Mutex_Lock(ak_mutex* Mutex);
 AKATOMICDEF bool AK_Mutex_Try_Lock(ak_mutex* Mutex);
 
+AKATOMICDEF bool AK_Semaphore_Create(ak_semaphore* Semaphore, uint32_t InitialCount);
+AKATOMICDEF void AK_Semaphore_Delete(ak_semaphore* Semaphore);
+AKATOMICDEF void AK_Semaphore_Increment(ak_semaphore* Semaphore);
+AKATOMICDEF void AK_Semaphore_Decrement(ak_semaphore* Semaphore);
+AKATOMICDEF bool AK_Semaphore_Try_Decrement(ak_semaphore* Semaphore);
+
 #endif
 
 #ifdef AK_ATOMIC_IMPLEMENTATION
 
-//Compiler specific functions (all other atomics are built ontop of these)
+/*Compiler specific functions (all other atomics are built ontop of these)*/
 
 #if defined(AK_ATOMIC_MSVC_COMPILER)
 
 AKATOMICDEF uint32_t AK_Atomic_Load_U32_Relaxed(const ak_atomic_u32* Object) {
-    //Do a volatile load so that compiler doesn't duplicate loads, which makes
-    //them nonatomic. 
+    /*Do a volatile load so that compiler doesn't duplicate loads, which makes
+      them nonatomic.*/ 
     return ((volatile ak_atomic_u32*)Object)->Nonatomic;
 }
 
@@ -276,12 +328,12 @@ AKATOMICDEF uint32_t AK_Atomic_Decrement_U32_Relaxed(ak_atomic_u32* Object) {
 
 AKATOMICDEF uint64_t AK_Atomic_Load_U64_Relaxed(const ak_atomic_u64* Object) {
 #if (AK_ATOMIC_PTR_SIZE == 8)
-    //Do a volatile load so that compiler doesn't duplicate loads, which makes
-    //them nonatomic. 
+    /*Do a volatile load so that compiler doesn't duplicate loads, which makes
+      them nonatomic.*/ 
     return ((volatile ak_atomic_u64*)Object)->Nonatomic;
 #else
-    //Interlocked compare exchange is the most compatibile way to get an atomic 
-    //64 bit load on 32 bit x86
+    /*Interlocked compare exchange is the most compatibile way to get an atomic 
+      64 bit load on 32 bit x86*/
     return AK_Atomic_Compare_Exchange_U64_Relaxed((ak_atomic_u64*)Object, 0, 0);
 #endif
 }
@@ -658,11 +710,245 @@ AKATOMICDEF uint64_t AK_Atomic_Decrement_U64_Relaxed(ak_atomic_u64* Object) {
     return AK_Atomic_Fetch_Add_U64_Relaxed(Object, -1) - 1;
 }
 
+#elif defined(AK_ATOMIC_GCC_COMPILER) && defined(AK_ATOMIC_X86_64_CPU)
+
+AKATOMICDEF uint32_t AK_Atomic_Load_U32_Relaxed(const ak_atomic_u32* Object) {
+    return Object->Nonatomic;
+}
+
+AKATOMICDEF void AK_Atomic_Store_U32_Relaxed(ak_atomic_u32* Object, uint32_t Value) {
+    Object->Nonatomic = Value;
+}
+
+AKATOMICDEF uint32_t AK_Atomic_Exchange_U32_Relaxed(ak_atomic_u32* Object, uint32_t NewValue) {
+    /*
+    "=r"(previous) chooses any general register, makes that %0, and outputs
+    this register to previous after the
+    block.
+    "+m"(object->nonatomic) is the memory address that is read/written. This
+    becomes %1.
+    "0"(operand) puts operand into the same register as %0 before the block.
+    volatile is required. Otherwise, if the return value (previous) is unused,
+    the asm block
+    No lock prefix is necessary for XCHG.
+    */
+    uint32_t Result;
+    __asm__ volatile(
+        "xchgl %0, %1"
+        : "=r"(Result), "+m"(Object->Nonatomic)
+        : "0"(NewValue)
+    );
+    return Result;
+}
+
+AKATOMICDEF uint32_t AK_Atomic_Compare_Exchange_U32_Relaxed(ak_atomic_u32* Object, uint32_t OldValue, uint32_t NewValue) {
+    /*
+    "=a"(previous) means the asm block outputs EAX to previous, because CMPXCHG
+    puts the old value in EAX.
+    "+m"(object->nonatomic) is the memory address that is read/written. This
+    becomes %1.
+    "q"(desired) puts desired into any of EBX, ECX or EDX before the block.
+    This becomes %2.
+    "0"(expected) puts expected in the same register as "=a"(previous), which
+    is EAX, before the block.*/
+    uint32_t Result;
+    __asm__ volatile(
+        "lock; cmpxchgl %2, %1"
+        : "=a"(Result), "+m"(Object->Nonatomic)
+        : "q"(NewValue), "0"(OldValue) 
+    );
+    return Result;
+}
+
+AKATOMICDEF bool AK_Atomic_Compare_Exchange_U32_Weak_Relaxed(ak_atomic_u32* Object, uint32_t* OldValue, uint32_t NewValue) {
+    uint32_t Old = *OldValue;
+    uint32_t Previous = (uint32_t)AK_Atomic_Compare_Exchange_U32_Relaxed(Object, Old, NewValue);
+    bool Result = (Previous == Old);
+    if(!Result) *OldValue = Previous;
+    return Result;
+}
+
+AKATOMICDEF uint32_t AK_Atomic_Fetch_Add_U32_Relaxed(ak_atomic_u32* Object, int32_t Operand) {
+    /*
+    See AK_Atomic_Exchange_U32_Relaxed for register constraint explanations
+    Lock prefix is necessary of xaddl
+    */
+   uint32_t Result;
+   __asm__ volatile(
+        "lock; xaddl %0, %1"
+        : "=r"(Result), "+m"(Object->Nonatomic)
+        : "0"(Operand)
+   );
+   return Result;
+}
+
+AKATOMICDEF uint32_t AK_Atomic_Increment_U32_Relaxed(ak_atomic_u32* Object) {
+    return AK_Atomic_Fetch_Add_U32_Relaxed(Object, 1)+1;    
+}
+
+AKATOMICDEF uint32_t AK_Atomic_Decrement_U32_Relaxed(ak_atomic_u32* Object) {
+    return AK_Atomic_Fetch_Add_U32_Relaxed(Object, -1)-1;    
+}
+
+#if AK_ATOMIC_PTR_SIZE == 8
+AKATOMICDEF uint64_t AK_Atomic_Load_U64_Relaxed(const ak_atomic_u64* Object) {
+    return Object->Nonatomic;
+}
+
+AKATOMICDEF void AK_Atomic_Store_U64_Relaxed(ak_atomic_u64* Object, uint64_t Value) {
+    Object->Nonatomic = Value;
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Exchange_U64_Relaxed(ak_atomic_u64* Object, uint64_t NewValue) {
+    uint64_t Result;
+    __asm__ volatile(
+        "xchgq %0, %1"
+        : "=r"(Result), "+m"(Object->Nonatomic)
+        : "0"(NewValue)
+    );
+    return Result;
+}
+
+AKATOMICDEF uint64_t  AK_Atomic_Compare_Exchange_U64_Relaxed(ak_atomic_u64* Object, uint64_t OldValue, uint64_t NewValue) {
+    uint64_t Result;
+    __asm__ volatile(
+        "lock; cmpxchgq %2, %1"
+        : "=a"(Result), "+m"(Object->Nonatomic)
+        : "q"(NewValue), "0"(OldValue)
+    );
+    return Result;
+}
+
+AKATOMICDEF bool AK_Atomic_Compare_Exchange_U64_Weak_Relaxed(ak_atomic_u64* Object, uint64_t* OldValue, uint64_t NewValue) {
+    uint64_t Old = *OldValue;
+    uint64_t Previous = AK_Atomic_Compare_Exchange_U64_Relaxed(Object, Old, NewValue);
+    bool Result = (Previous == Old);
+    if(!Result) *OldValue = Previous;
+    return Result;
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Fetch_Add_U64_Relaxed(ak_atomic_u64* Object, int64_t Operand) {
+    uint64_t Result;
+    __asm__ volatile(
+        "lock; xaddq %0, %1"
+        : "=r"(Result), "+m"(Object->Nonatomic)
+        : "0"(Operand)
+    );
+    return Result;
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Increment_U64_Relaxed(ak_atomic_u64* Object) {
+    return AK_Atomic_Fetch_Add_U64_Relaxed(Object, 1) + 1;
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Decrement_U64_Relaxed(ak_atomic_u64* Object) {
+    return AK_Atomic_Fetch_Add_U64_Relaxed(Object, -1) - 1;
+}
+
+#else
+
+AKATOMICDEF uint64_t AK_Atomic_Load_U64_Relaxed(const ak_atomic_u64* Object) {
+    /* 
+    On 32-bit x86, the most compatible way to get an atomic 64-bit load is with
+    cmpxchg8b.
+    "=&A"(previous) outputs EAX:EDX to previous after the block, while telling
+    the compiler that these registers are clobbered before %1 is used, so don't 
+    use EAX or EDX for %1.
+    "m"(object->nonatomic) loads object's address into a register, which
+    becomes %1, before the block.*/
+    uint64_t Result;
+    __asm__ volatile(
+        "movl %%ebx, %%eax\n"
+        "movl %%ecx, %%edx\n"
+        "lock; cmpxchg8b %1"
+        : "=&A"(Result)
+        : "m"(Object->Nonatomic)
+    );
+    return Result;
+}
+
+AKATOMICDEF void AK_Atomic_Store_U64_Relaxed(ak_atomic_u64* Object, uint64_t NewValue) {
+    /*
+    On 32-bit x86, the most compatible way to get an atomic 64-bit store is
+    with cmpxchg8b.
+    Essentially, we perform turf_compareExchange64Relaxed(object, object->nonatomic, desired)
+    in a loop until it returns the previous value.
+    According to the Linux kernel (atomic64_cx8_32.S), we don't need the
+    "lock;" prefix on cmpxchg8b since aligned 64-bit writes are already atomic 
+    on 586 and newer.
+    "=m"(object->nonatomic) loads object's address into a register, which
+    becomes %0, before the block, and tells the compiler the variable at 
+    address will be modified by the block.
+    "b" and "c" move desired to ECX:EBX before the block.
+    "A"(expected) loads the previous value of object->nonatomic into EAX:EDX
+    before the block. */
+    uint64_t OldValue = Object->Nonatomic;
+    __asm__ volatile(
+        "1: cmpxchg8b %0\n"
+        "   jne 1b"
+        : "=m"(Object->Nonatomic)
+        : "b"((uint32_t)NewValue), "c"((uint32_t)(NewValue >> 32)), "A"(OldValue)
+    );
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Exchange_U64_Relaxed(ak_atomic_u64* Object, uint64_t NewValue) {
+    uint64_t OldValue = Object->Nonatomic;
+    for(;;) {
+        uint64_t Previous = AK_Atomic_Compare_Exchange_U64_Relaxed(Object, OldValue, NewValue);
+        if(Previous == OldValue)
+            return OldValue;
+        OldValue = Previous; 
+    }
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Compare_Exchange_U64_Relaxed(ak_atomic_u64* Object, uint64_t OldValue, uint64_t NewValue) {
+    /*
+    cmpxchg8b is the only way to do 64-bit RMW operations on 32-bit x86.
+    "=A"(previous) outputs EAX:EDX to previous after the block.
+    "+m"(object->nonatomic) is the memory address that is read/written. This
+    becomes %1.
+    "b" and "c" move desired to ECX:EBX before the block.
+    "0"(expected) puts expected in the same registers as "=a"(previous), which
+    are EAX:EDX, before the block.*/
+    uint64_t Result;
+    __asm__ volatile(
+        "lock; cmpxchg8b %1"
+        : "=A"(Result), "+m"(Object->Nonatomic)
+        : "b"((uint32_t)NewValue), "c"((uint32_t)(NewValue >> 32)), "0"(OldValue)
+    );
+    return Result;
+}
+
+AKATOMICDEF bool AK_Atomic_Compare_Exchange_U64_Weak_Relaxed(ak_atomic_u64* Object, uint64_t* OldValue, uint64_t NewValue) {
+    uint64_t Old = *OldValue;
+    uint64_t Previous = AK_Atomic_Compare_Exchange_U64_Relaxed(Object, Old, NewValue);
+    bool Result = (Previous == Old);
+    if(!Result) *OldValue = Previous;
+    return Result;
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Fetch_Add_U64_Relaxed(ak_atomic_u64* Object, int64_t Operand) {
+    for(;;) {
+        uint64_t OldValue = Object->Nonatomic;
+        if(AK_Atomic_Compare_Exchange_Bool_U64_Relaxed(Object, OldValue, OldValue+Operand))
+            return OldValue;
+    }
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Increment_U64_Relaxed(ak_atomic_u64* Object) {
+    return AK_Atomic_Fetch_Add_U64_Relaxed(Object, 1) + 1;
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Decrement_U64_Relaxed(ak_atomic_u64* Object) {
+    return AK_Atomic_Fetch_Add_U64_Relaxed(Object, -1) - 1;
+}
+#endif
+
 #else
 #   error "Not Implemented"
 #endif
 
-//Ptr type (is either 32 bit or 64 bit wrappers)
+/*Ptr type (is either 32 bit or 64 bit wrappers)*/
 #if (AK_ATOMIC_PTR_SIZE == 8)
 AKATOMICDEF void* AK_Atomic_Load_Ptr_Relaxed(const ak_atomic_ptr* Object) {
     return (void*)AK_Atomic_Load_U64_Relaxed((const ak_atomic_u64*)Object);
@@ -705,7 +991,7 @@ AKATOMICDEF bool AK_Atomic_Compare_Exchange_Ptr_Weak_Relaxed(ak_atomic_ptr* Obje
 }
 #endif
 
-//Compare exchange for boolean results
+/*Compare exchange for boolean results*/
 AKATOMICDEF bool AK_Atomic_Compare_Exchange_Bool_U32_Relaxed(ak_atomic_u32* Object, uint32_t OldValue, uint32_t NewValue) {
     return AK_Atomic_Compare_Exchange_U32_Relaxed(Object, OldValue, NewValue) == OldValue;
 }
@@ -718,7 +1004,7 @@ AKATOMICDEF bool AK_Atomic_Compare_Exchange_Bool_Ptr_Relaxed(ak_atomic_ptr* Obje
     return AK_Atomic_Compare_Exchange_Ptr_Relaxed(Object, OldValue, NewValue) == OldValue;
 }
 
-//Atomic functions with memory order parameters
+/*Atomic functions with memory order parameters*/
 AKATOMICDEF uint32_t AK_Atomic_Load_U32(const ak_atomic_u32* Object, ak_atomic_memory_order MemoryOrder) {
     uint32_t Result = AK_Atomic_Load_U32_Relaxed(Object);
     if(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_ACQUIRE || MemoryOrder == AK_ATOMIC_MEMORY_ORDER_ACQ_REL)
@@ -938,7 +1224,7 @@ AKATOMICDEF bool AK_Atomic_Compare_Exchange_Bool_Ptr(ak_atomic_ptr* Object, void
     return Result;
 }
 
-//OS Thread primitives
+/*OS Thread primitives*/
 #if defined(AK_ATOMIC_WIN32_OS)
 AKATOMICDEF uint32_t AK_Get_Processor_Thread_Count(void) {
     SYSTEM_INFO SystemInfo = {0};
@@ -1008,6 +1294,13 @@ AKATOMICDEF void AK_Mutex_Lock(ak_mutex* Mutex) {
 AKATOMICDEF bool AK_Mutex_Try_Lock(ak_mutex* Mutex) {
     return TryEnterCriticalSection(&Mutex->CriticalSection);
 }
+
+AKATOMICDEF bool AK_Semaphore_Create(ak_semaphore* Semaphore, uint32_t InitialCount);
+AKATOMICDEF void AK_Semaphore_Delete(ak_semaphore* Semaphore);
+AKATOMICDEF void AK_Semaphore_Increment(ak_semaphore* Semaphore);
+AKATOMICDEF void AK_Semaphore_Decrement(ak_semaphore* Semaphore);
+AKATOMICDEF bool AK_Semaphore_Try_Decrement(ak_semaphore* Semaphore);
+
 #elif defined(AK_ATOMIC_POSIX_OS)
 
 AKATOMICDEF uint32_t AK_Get_Processor_Thread_Count(void) {
@@ -1054,13 +1347,10 @@ AKATOMICDEF uint64_t AK_Thread_Get_Current_ID(void) {
 }
 
 AKATOMICDEF bool AK_Mutex_Create(ak_mutex* Mutex) {
-    pthread_mutexattr_init(&Mutex->Attribute);
-    pthread_mutexattr_settype(&Mutex->Attribute, PTHREAD_MUTEX_NORMAL);
-    return pthread_mutex_init(&Mutex->Mutex, &Mutex->Attribute) == 0;
+    return pthread_mutex_init(&Mutex->Mutex, NULL) == 0;
 }
 
 AKATOMICDEF void AK_Mutex_Delete(ak_mutex* Mutex) {
-    pthread_mutexattr_destroy(&Mutex->Attribute);
     pthread_mutex_destroy(&Mutex->Mutex);
 }
 
@@ -1075,8 +1365,30 @@ AKATOMICDEF void AK_Mutex_Lock(ak_mutex* Mutex) {
 AKATOMICDEF bool AK_Mutex_Try_Lock(ak_mutex* Mutex) {
     return pthread_mutex_trylock(&Mutex->Mutex);
 }
+
+AKATOMICDEF bool AK_Semaphore_Create(ak_semaphore* Semaphore, uint32_t InitialCount) {
+    return sem_init(&Semaphore->Semaphore, 0, InitialCount) == 0;
+}
+
+AKATOMICDEF void AK_Semaphore_Delete(ak_semaphore* Semaphore) {
+    sem_destroy(&Semaphore->Semaphore);
+}
+
+AKATOMICDEF void AK_Semaphore_Increment(ak_semaphore* Semaphore) {
+    sem_post(&Semaphore->Semaphore);
+}
+
+AKATOMICDEF void AK_Semaphore_Decrement(ak_semaphore* Semaphore) {
+    sem_wait(&Semaphore->Semaphore);
+}
+
+AKATOMICDEF bool AK_Semaphore_Try_Decrement(ak_semaphore* Semaphore) {
+    return sem_trywait(&Semaphore->Semaphore);
+}
+
 #else
 #error "Not Implemented"
 #endif
+
 
 #endif
