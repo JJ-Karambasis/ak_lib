@@ -735,28 +735,38 @@ AKATOMICDEF uint32_t AK_Atomic_Decrement_U32_Relaxed(ak_atomic_u32* Object) {
 }
 
 AKATOMICDEF uint64_t AK_Atomic_Load_U64_Relaxed(const ak_atomic_u64* Object) {
-    return AK_Atomic_Compare_Exchange_U64_Relaxed((ak_atomic_u64*)Object, 0, 0);
+    uint64_t Result;
+    __asm__ volatile(
+        "1: ldrexd %0, %H0, [%1]"
+        : "=&r"(Result)
+        : "r"(Object), "Qo"(Object->Nonatomic)
+    );
+    return Result;
 }
 
 AKATOMICDEF void AK_Atomic_Store_U64_Relaxed(ak_atomic_u64* Object, uint64_t Value) {
-    uint64_t Expected = Object->Nonatomic;
-    for(;;) {
-        uint64_t Previous = AK_Atomic_Compare_Exchange_U64_Relaxed(Object, Expected, Value);
-        if(Previous == Expected) break;
-        Expected = Previous;
-    }
+    uint64_t Status;
+    __asm__ volatile(
+        "1: ldrexd %0, %H0, [%2]\n"
+        "   strexd %0, %3, %H3, [%2]\n"
+        "   teq    %0, #0\n"
+        "   bne    1b"
+        : "=&r"(Status), "=Qo" (Object->Nonatomic)
+        : "r"(Object), "r"(Value)
+        : "cc"
+    );
 }
 
 AKATOMICDEF uint64_t AK_Atomic_Exchange_U64_Relaxed(ak_atomic_u64* Object, uint64_t NewValue) {
     uint32_t Status;
     uint64_t Previous;
     __asm__ volatile(
-        "1: ldrexd %0, [%3]\n"
-        "   strexd %1, %4, [%3]\n"
+        "1: ldrexd %0, %H0, [%3]\n"
+        "   strexd %1, %4, %H4, [%3]\n"
         "   cmp    %1, #0\n"
         "   bne    1b\n"
         "2:"
-        : "=&r" (Previous), "=&r" (Status), "+Q"(Object->Nonatomic)
+        : "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic)
         : "r"(Object), "r"(NewValue)
         : "cc");
     
@@ -796,15 +806,15 @@ AKATOMICDEF uint64_t AK_Atomic_Fetch_Add_U64_Relaxed(ak_atomic_u64* Object, int6
     uint64_t Previous, TempAddRegister;
 
     __asm__ volatile(
-        "1: ldrexd %0, [%4]\n" /*Stores the value of Object into the result*/
-        "   mov    %3, %0\n" /*Stores the result into a temp register for addition*/
-        "   add    %3, %5\n" /*Adds the temp register and operand and stores it into the temp register*/
-        "   strexd %1, %3, [%4]\n" /*Copy from the temp register to the final object*/
-        "   cmp    %1, #0\n"
+        "1: ldrexd %0,  %H0, [%4]\n" /*Stores the value of Object into the result*/
+        "   adds   %3,  %0,  %5\n"
+        "   adc    %H3, %H0, %H5\n"
+        "   strexd %1,  %3, %H3, [%4]\n" /*Copy from the temp register to the final object*/
+        "   teq    %1,  #0\n"
         "   bne    1b\n"
         "2:"
-        : "=&r" (Previous), "=&r" (Status), "+Q"(Object->Nonatomic), "=&r"(TempAddRegister)
-        : "r"(Object), "Ir" (Operand)
+        : "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic), "=&r"(TempAddRegister)
+        : "r"(Object), "r" (Operand)
         : "cc");
 
     return Previous;

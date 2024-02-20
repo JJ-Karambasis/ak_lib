@@ -102,7 +102,7 @@ void android_main(struct android_app* App) {
             uint64_t ReturnValue = AK_Atomic_Compare_Exchange_U64_Relaxed(&TestValue, OldValue, 100);
             AK_JOB_SYSTEM_ASSERT(ReturnValue == 10);
 
-            utest_main(2, Filters);
+            utest_main(0, Filters);
             ANativeActivity_finish(App->activity);
             TestContext.IsFinished = true;
         }
