@@ -7,7 +7,7 @@
             "label": "Build Win32",
             "type": "shell",
             "windows": {
-                "command": "${workspaceFolder}/build/build.bat release",
+                "command": "${workspaceFolder}/build/build_win32.bat clang release env32",
                 "problemMatcher": "$msCompile"
             },
             "group": {
