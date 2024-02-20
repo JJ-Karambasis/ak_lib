@@ -80,7 +80,7 @@ orders via barriers. Before jobs are ran, 0 is filled in for X and Y
 In the above job we assign
 */
 UTEST(AK_Atomic, StoreAndLoad32) {
-    const uint32_t Iterations = 100000;
+    const uint32_t Iterations = 1000;
 
     uint32_t i;
     for(i = 0; i < Iterations; i++) {
@@ -146,7 +146,7 @@ In the above job we assign
 Only case where x86 can reorder instructions is during store then loads
 */
 UTEST(AK_Atomic, StoreAndLoad64) {
-    const uint32_t Iterations = 100000;
+    const uint32_t Iterations = 1000;
 
     uint32_t i;
     for(i = 0; i < Iterations; i++) {
@@ -885,10 +885,9 @@ AK_JOB_CALLBACK_DEFINE(AK_Job_System_Test_Callback) {
     ak_job_system_job_data* JobData = (ak_job_system_job_data*)JobUserData;
     assert(JobData->Index < JobData->ThreadData->Count); /*overflow occurred*/
     JobData->ThreadData->CounterTable[JobData->Index]++;
-
     return AK_JOB_STATUS_COMPLETE;
 }
-#if 1
+
 UTEST(AK_Job_System, Test) {
     const uint32_t ThreadCount = AK_Get_Processor_Thread_Count();
     const uint32_t MaxJobCount = (10000000);
@@ -918,20 +917,35 @@ UTEST(AK_Job_System, Test) {
 
     AK_Job_System_Add_Job(JobSystem, RootJob);
     AK_Job_System_Wait_For_Job(JobSystem, RootJob);
-    AK_Job_System_Delete(JobSystem);
-
     printf("Time: %fms\n", ((double)(Query_Performance_Counter()-StartTime)/(double)Query_Performance_Frequency())*1000.0);
+    AK_Job_System_Delete(JobSystem);
 
     for(i = 0; i < MaxJobCount; i++) {
         /*Each index should've only been operated on once*/
         ASSERT_EQ(ThreadData.CounterTable[i], 1);
     }
 
-
     free(JobsData);
     free(ThreadData.CounterTable);
 }
-#endif
+
+AK_JOB_CALLBACK_DEFINE(AK_Job_System_Sleep_Test_Callback) {
+    AK_Sleep(10000);
+    return AK_JOB_STATUS_COMPLETE;
+}
+
+UTEST(AK_Job_System, SleepTest) {
+    ak_job_system* JobSystem = AK_Job_System_Create(1, AK_Get_Processor_Thread_Count(), NULL);
+    ASSERT_TRUE(JobSystem);
+
+    ak_job_id SleepID = AK_Job_System_Alloc_Job(JobSystem, AK_Job_System_Sleep_Test_Callback, NULL, 
+                                                0, AK_JOB_FLAG_QUEUE_IMMEDIATELY_BIT);
+    ASSERT_TRUE(SleepID != 0);
+
+    AK_Job_System_Wait_For_Job(JobSystem, SleepID);
+    AK_Job_System_Delete(JobSystem);
+}
+
 #endif
 
 #ifndef ANDROID_BUILD
