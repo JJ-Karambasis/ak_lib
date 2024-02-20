@@ -3,9 +3,45 @@
   some c99 stdio/stdlib values
 */
 #define _ISOC99_SOURCE 
-#include <features.h>
 #include <ak_atomic.h>
+#include <assert.h>
 #include "utest.h"
+
+#ifdef AK_ATOMIC_WIN32_OS
+uint64_t Query_Performance_Counter() {
+    uint64_t Result;
+    QueryPerformanceCounter((LARGE_INTEGER*)&Result);
+    return Result;
+}
+
+uint64_t Query_Performance_Frequency() {
+    uint64_t Result;
+    QueryPerformanceFrequency((LARGE_INTEGER*)&Result);
+    return Result;
+}
+
+#elif defined(AK_ATOMIC_POSIX_OS)
+#include <time.h>
+
+static const uint64_t NS_PER_SECOND = 1000000000;
+uint64_t Query_Performance_Counter() {
+    struct timespec Now;
+    clock_gettime(CLOCK_MONOTONIC_RAW, &Now);
+
+    uint64_t Result = Now.tv_sec;
+    Result *= NS_PER_SECOND;
+    Result += Now.tv_nsec;
+
+    return Result;
+}
+
+uint64_t Query_Performance_Frequency() {
+    return NS_PER_SECOND;
+}
+
+#else
+#error "Performance counter not implemented"
+#endif
 
 typedef struct {
     ak_atomic_u32 X;
@@ -832,6 +868,71 @@ UTEST(AK_Atomic, CompareExchangePtr) {
     free(ThreadData);
     free(Nodes);
 }
+
+#ifndef AK_DISABLE_JOB_SYSTEM
+
+typedef struct {
+    uint32_t  Count;
+    uint32_t* CounterTable;
+} ak_job_system_thread_data;
+
+typedef struct {
+    ak_job_system_thread_data* ThreadData;
+    uint32_t                   Index;
+} ak_job_system_job_data;
+
+AK_JOB_CALLBACK_DEFINE(AK_Job_System_Test_Callback) {
+    ak_job_system_job_data* JobData = (ak_job_system_job_data*)JobUserData;
+    assert(JobData->Index < JobData->ThreadData->Count); /*overflow occurred*/
+    JobData->ThreadData->CounterTable[JobData->Index]++;
+
+    return AK_JOB_STATUS_COMPLETE;
+}
+#if 1
+UTEST(AK_Job_System, Test) {
+    const uint32_t ThreadCount = AK_Get_Processor_Thread_Count();
+    const uint32_t MaxJobCount = (10000000);
+
+    ak_job_system_thread_data ThreadData = {0};
+    ThreadData.Count = MaxJobCount;
+    ThreadData.CounterTable = (uint32_t*)malloc(sizeof(uint32_t)*MaxJobCount);
+    memset(ThreadData.CounterTable, 0, sizeof(uint32_t)*MaxJobCount);
+
+    ak_job_system_job_data* JobsData = (ak_job_system_job_data*)malloc(sizeof(ak_job_system_job_data)*MaxJobCount);
+
+    ak_job_system* JobSystem = AK_Job_System_Create(MaxJobCount+1, ThreadCount, NULL);
+    ASSERT_TRUE(JobSystem);
+
+    uint64_t StartTime = Query_Performance_Counter();
+
+    ak_job_id RootJob = AK_Job_System_Alloc_Empty_Job(JobSystem);
+    uint32_t i;
+    for(i = 0; i < MaxJobCount; i++) {
+        ak_job_system_job_data* JobData = JobsData+i;
+        JobData->ThreadData = &ThreadData;
+        JobData->Index = i;
+        ak_job_id JobID = AK_Job_System_Alloc_Job(JobSystem, AK_Job_System_Test_Callback, JobData, 
+                                                  RootJob, AK_JOB_FLAG_QUEUE_IMMEDIATELY_BIT);
+        ASSERT_TRUE(JobID != 0);
+    }
+
+    AK_Job_System_Add_Job(JobSystem, RootJob);
+    AK_Job_System_Wait_For_Job(JobSystem, RootJob);
+    AK_Job_System_Delete(JobSystem);
+
+    printf("Time: %fms\n", ((double)(Query_Performance_Counter()-StartTime)/(double)Query_Performance_Frequency())*1000.0);
+
+    for(i = 0; i < MaxJobCount; i++) {
+        /*Each index should've only been operated on once*/
+        ASSERT_EQ(ThreadData.CounterTable[i], 1);
+    }
+
+
+    free(JobsData);
+    free(ThreadData.CounterTable);
+}
+#endif
+#endif
 
 #ifndef ANDROID_BUILD
 UTEST_MAIN()

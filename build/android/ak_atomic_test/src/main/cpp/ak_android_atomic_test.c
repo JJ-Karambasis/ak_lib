@@ -1,6 +1,8 @@
 #include <android/log.h>
-#include <android_native_app_glue.h>
 #include <tests/ak_atomic_test.c>
+
+#pragma clang diagnostic ignored "-Wcomment"
+#include <android_native_app_glue.h>
 
 UTEST_STATE();
 
@@ -90,7 +92,17 @@ void android_main(struct android_app* App) {
         }
 
         if(TestContext.IsReady && !TestContext.IsFinished) {
-            utest_main(0, NULL);
+            const char* Filters[] = {
+                "",
+                "--filter=AK_Job_System.Test"
+            };
+            uint64_t OldValue = 10;
+            ak_atomic_u64 TestValue; 
+            AK_Atomic_Store_U64_Relaxed(&TestValue, OldValue);
+            uint64_t ReturnValue = AK_Atomic_Compare_Exchange_U64_Relaxed(&TestValue, OldValue, 100);
+            AK_JOB_SYSTEM_ASSERT(ReturnValue == 10);
+
+            utest_main(2, Filters);
             ANativeActivity_finish(App->activity);
             TestContext.IsFinished = true;
         }
