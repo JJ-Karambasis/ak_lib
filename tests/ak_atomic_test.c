@@ -869,6 +869,105 @@ UTEST(AK_Atomic, CompareExchangePtr) {
     free(Nodes);
 }
 
+#ifndef AK_DISABLE_ASYNC_SLOT_MAP
+
+typedef struct {
+    ak_slot64     SlotID;
+    uint64_t      AllocateThreadID;
+    uint64_t      FreeThreadID;
+    ak_atomic_u32 Allocated;
+    bool          Freed;
+} ak_slot_map_thread_test_entry;
+
+typedef struct {
+    ak_async_slot_map64*           SlotMap;
+    uint32_t                       Count;
+    ak_slot_map_thread_test_entry* Entries;
+} ak_slot_map_thread_test_data;
+
+int32_t AK_Async_Slot_Map_Free_Thread_Callback(ak_thread* Thread, void* UserData) {
+    ak_slot_map_thread_test_data* ThreadData = (ak_slot_map_thread_test_data*)UserData;
+    ak_async_slot_map64* SlotMap = ThreadData->SlotMap;
+
+    bool IsDone = false;
+    while(!IsDone) {
+        IsDone = true;
+        uint32_t Index;
+        for(Index = 0; Index < ThreadData->Count; Index++) {
+            ak_slot_map_thread_test_entry* Entry = ThreadData->Entries + Index;
+            if(AK_Atomic_Load_U32(&Entry->Allocated, AK_ATOMIC_MEMORY_ORDER_ACQUIRE) && !Entry->Freed) {
+                AK_Async_Slot_Map64_Free_Slot(SlotMap, Entry->SlotID);
+                Entry->FreeThreadID = AK_Thread_Get_Current_ID();
+                Entry->Freed = true;
+            }
+
+            if(!Entry->Freed) {
+                IsDone = false;
+            }
+        }
+    }
+
+    return 0;
+}
+
+int32_t AK_Async_Slot_Map_Allocate_Thread_Callback(ak_thread* Thread, void* UserData) {
+    ak_slot_map_thread_test_data* ThreadData = (ak_slot_map_thread_test_data*)UserData;
+    ak_async_slot_map64* SlotMap = ThreadData->SlotMap;
+
+    uint32_t Index;
+    for(Index = 0; Index < ThreadData->Count; Index++) {
+        ak_slot_map_thread_test_entry* Entry = ThreadData->Entries + Index;
+        Entry->SlotID = AK_Async_Slot_Map64_Alloc_Slot(SlotMap);
+        Entry->AllocateThreadID = AK_Thread_Get_Current_ID();
+        AK_Atomic_Store_U32(&Entry->Allocated, true, AK_ATOMIC_MEMORY_ORDER_RELEASE);
+    }
+    return 0;
+}
+
+UTEST(AK_Async_Slot_Map64, Test) {
+    const uint32_t NumWorkerThreads = AK_Get_Processor_Thread_Count();
+    const uint32_t Batch = 1000000;
+
+    ak_async_slot_map64 SlotMap;
+    AK_Async_Slot_Map64_Alloc(&SlotMap, NumWorkerThreads*Batch, NULL);
+
+    ak_slot_map_thread_test_entry* ThreadEntries = (ak_slot_map_thread_test_entry*)malloc((NumWorkerThreads*Batch)*sizeof(ak_slot_map_thread_test_entry));
+    memset(ThreadEntries, 0, (NumWorkerThreads*Batch)*sizeof(ak_slot_map_thread_test_entry));
+    ak_slot_map_thread_test_data* TestData = (ak_slot_map_thread_test_data*)malloc(sizeof(ak_slot_map_thread_test_data)*NumWorkerThreads);
+    ak_thread* AllocateThreads = (ak_thread*)malloc(sizeof(ak_thread)*NumWorkerThreads);
+    ak_thread* FreeThreads = (ak_thread*)malloc(sizeof(ak_thread)*NumWorkerThreads);
+
+    uint32_t ThreadIndex;
+    for(ThreadIndex = 0; ThreadIndex < NumWorkerThreads; ThreadIndex++) {
+        ak_slot_map_thread_test_data* ThreadData = TestData+ThreadIndex;
+
+        ThreadData->SlotMap = &SlotMap;
+        ThreadData->Count   = Batch;
+        ThreadData->Entries = ThreadEntries + ThreadIndex*Batch;
+
+        AK_Thread_Create(&FreeThreads[ThreadIndex], AK_Async_Slot_Map_Free_Thread_Callback, ThreadData);
+        AK_Thread_Create(&AllocateThreads[ThreadIndex], AK_Async_Slot_Map_Allocate_Thread_Callback, ThreadData);    
+    }
+
+    for(ThreadIndex = 0; ThreadIndex < NumWorkerThreads; ThreadIndex++) {
+        AK_Thread_Delete(&FreeThreads[ThreadIndex]);
+        AK_Thread_Delete(&AllocateThreads[ThreadIndex]);
+    }
+
+    uint32_t i;
+    for(i = 0; i < NumWorkerThreads*Batch; i++) {
+        ASSERT_TRUE(ThreadEntries[i].Allocated.Nonatomic);
+        ASSERT_TRUE(ThreadEntries[i].Freed);
+    }
+
+    free(FreeThreads);
+    free(AllocateThreads);
+    free(TestData);
+    free(ThreadEntries);
+}
+
+#endif
+
 #ifndef AK_DISABLE_JOB_SYSTEM
 
 typedef struct {

@@ -351,6 +351,54 @@ AKATOMICDEF void AK_LW_Semaphore_Increment(ak_lw_semaphore* Semaphore);
 AKATOMICDEF void AK_LW_Semaphore_Decrement(ak_lw_semaphore* Semaphore);
 AKATOMICDEF void AK_LW_Semaphore_Add(ak_lw_semaphore* Semaphore, int32_t Addend);
 
+#ifndef AK_DISABLE_ASYNC_STACK_INDEX
+
+#define AK_ASYNC_STACK_INDEX32_INVALID ((uint32_t)-1) 
+
+typedef struct {
+    void*         AllocUserData;
+    uint32_t*     NextIndices;
+    ak_atomic_u64 Head;
+    uint32_t      Capacity;
+    uint32_t      Unused__Padding;
+} ak_async_stack_index32;
+
+AKATOMICDEF void     AK_Async_Stack_Index32_Init_Raw(ak_async_stack_index32* StackIndex, uint32_t* IndicesPtr, uint32_t Capacity);
+AKATOMICDEF void     AK_Async_Stack_Index32_Push_Sync(ak_async_stack_index32* StackIndex, uint32_t Index);
+AKATOMICDEF void     AK_Async_Stack_Index32_Push(ak_async_stack_index32* StackIndex, uint32_t Index);
+AKATOMICDEF uint32_t AK_Async_Stack_Index32_Pop(ak_async_stack_index32* StackIndex);
+AKATOMICDEF bool     AK_Async_Stack_Index32_Alloc(ak_async_stack_index32* StackIndex, uint32_t Capacity, void* AllocUserData);
+AKATOMICDEF void     AK_Async_Stack_Index32_Free(ak_async_stack_index32* StackIndex);
+
+#endif
+
+#ifndef AK_DISABLE_ASYNC_SLOT_MAP
+
+typedef uint64_t ak_slot64;
+
+typedef union {
+    ak_slot64 Slot;
+    struct {
+        uint32_t      Index;
+        ak_atomic_u32 Generation;
+    } Data;
+} ak_slot64__internal;
+
+typedef struct {
+    void*                  AllocUserData;
+    ak_async_stack_index32 FreeIndices;
+    ak_slot64__internal*   Slots; /*Array size is specified by FreeIndices.Capacity*/
+} ak_async_slot_map64;
+
+AKATOMICDEF void      AK_Async_Slot_Map64_Init_Raw(ak_async_slot_map64* SlotMap, uint32_t* IndicesPtr, ak_slot64* SlotsPtr, uint32_t Capacity);
+AKATOMICDEF bool      AK_Async_Slot_Map64_Is_Allocated(ak_async_slot_map64* SlotMap, ak_slot64 Slot);
+AKATOMICDEF ak_slot64 AK_Async_Slot_Map64_Alloc_Slot(ak_async_slot_map64* SlotMap);
+AKATOMICDEF void      AK_Async_Slot_Map64_Free_Slot(ak_async_slot_map64* SlotMap, ak_slot64 Slot);
+AKATOMICDEF bool      AK_Async_Slot_Map64_Alloc(ak_async_slot_map64* SlotMap, uint32_t Capacity, void* AllocUserData);
+AKATOMICDEF void      AK_Async_Slot_Map64_Free(ak_async_slot_map64* SlotMap);
+
+#endif
+
 #ifndef AK_DISABLE_JOB_SYSTEM
 
 typedef uint64_t ak_job_id;
@@ -370,13 +418,13 @@ typedef enum ak_job_bit_flag {
 } ak_job_bit_flag;
 typedef uint32_t ak_job_flags;
 
-ak_job_system* AK_Job_System_Create(uint32_t MaxJobCount, uint32_t ThreadCount, void* UserData);
-void           AK_Job_System_Delete(ak_job_system* JobSystem);
-ak_job_id      AK_Job_System_Alloc_Job(ak_job_system* JobSystem, ak_job_callback_func* JobCallback, void* JobData, ak_job_id ParentID, ak_job_flags Flags);
-ak_job_id      AK_Job_System_Alloc_Empty_Job(ak_job_system* JobSystem);
-void           AK_Job_System_Free_Job(ak_job_system* JobSystem, ak_job_id JobID);
-void           AK_Job_System_Add_Job(ak_job_system* JobSystem, ak_job_id JobID);
-void           AK_Job_System_Wait_For_Job(ak_job_system* JobSystem, ak_job_id JobID);
+AKATOMICDEF ak_job_system* AK_Job_System_Create(uint32_t MaxJobCount, uint32_t ThreadCount, void* UserData);
+AKATOMICDEF void           AK_Job_System_Delete(ak_job_system* JobSystem);
+AKATOMICDEF ak_job_id      AK_Job_System_Alloc_Job(ak_job_system* JobSystem, ak_job_callback_func* JobCallback, void* JobData, ak_job_id ParentID, ak_job_flags Flags);
+AKATOMICDEF ak_job_id      AK_Job_System_Alloc_Empty_Job(ak_job_system* JobSystem);
+AKATOMICDEF void           AK_Job_System_Free_Job(ak_job_system* JobSystem, ak_job_id JobID);
+AKATOMICDEF void           AK_Job_System_Add_Job(ak_job_system* JobSystem, ak_job_id JobID);
+AKATOMICDEF void           AK_Job_System_Wait_For_Job(ak_job_system* JobSystem, ak_job_id JobID);
 
 #endif
 
@@ -590,7 +638,7 @@ AKATOMICDEF void AK_Atomic_Store_U64_Relaxed(ak_atomic_u64* Object, uint64_t Val
 
 AKATOMICDEF uint64_t AK_Atomic_Exchange_U64_Relaxed(ak_atomic_u64* Object, uint64_t NewValue) {
     uint32_t Status;
-    uint64_t Previous,;
+    uint64_t Previous;
     __asm__ volatile(
         "1: ldxr %0, %2\n"
         "   stxr %w1, %3, %2\n"
@@ -1512,7 +1560,7 @@ AKATOMICDEF bool AK_Condition_Variable_Create(ak_condition_variable* ConditionVa
 }
 
 AKATOMICDEF void AK_Condition_Variable_Delete(ak_condition_variable* ConditionVariable) {
-    //Noop on win32
+    /*Noop on win32*/
 }
 
 AKATOMICDEF void AK_Condition_Variable_Wait(ak_condition_variable* ConditionVariable, ak_mutex* Mutex, 
@@ -1740,6 +1788,195 @@ AKATOMICDEF void AK_LW_Semaphore_Add(ak_lw_semaphore* Semaphore, int32_t Addend)
     }
 }
 
+#ifndef AK_DISABLE_ASYNC_STACK_INDEX
+
+#ifndef AK_ASYNC_STACK_INDEX_NO_STDIO
+#include <stdio.h>
+#endif
+
+#if !defined(AK_ASYNC_STACK_INDEX_MALLOC)
+#define AK_ASYNC_STACK_INDEX_MALLOC(size, user_data) ((void)(user_data), malloc(size))
+#define AK_ASYNC_STACK_INDEX_FREE(ptr, user_data) ((void)(user_data), free(ptr))
+#endif
+
+#if !defined(AK_ASYNC_STACK_INDEX_MEMSET)
+#define AK_ASYNC_STACK_INDEX_MEMSET(mem, index, size) memset(mem, index, size)
+#endif
+
+#if !defined(AK_ASYNC_STACK_INDEX_ASSERT)
+#include <assert.h>
+#define AK_ASYNC_STACK_INDEX_ASSERT(cond) assert(cond)
+#endif
+
+typedef union {
+    uint64_t ID;
+    struct {
+        uint32_t Index;
+        uint32_t Key;
+    } KeyIndex;
+} ak_async_stack_index32__key;
+
+static ak_async_stack_index32__key AK_Async_Stack_Index32__Make_Key(uint32_t Index, uint32_t Key) {
+    ak_async_stack_index32__key Result;
+    Result.KeyIndex.Index = Index;
+    Result.KeyIndex.Key = Key;
+    return Result;
+}
+
+AKATOMICDEF void AK_Async_Stack_Index32_Init_Raw(ak_async_stack_index32* StackIndex, uint32_t* IndicesPtr, uint32_t Capacity) {
+    /*Make sure atomic is properly aligned*/
+    AK_ASYNC_STACK_INDEX_ASSERT((((size_t)&StackIndex->Head) % 8) == 0);
+    StackIndex->NextIndices = IndicesPtr;
+    StackIndex->Capacity = Capacity;
+    ak_async_stack_index32__key* HeadKey = (ak_async_stack_index32__key*)&StackIndex->Head.Nonatomic; 
+    HeadKey->KeyIndex.Index = AK_ASYNC_STACK_INDEX32_INVALID;
+    HeadKey->KeyIndex.Key = 0;
+}
+
+AKATOMICDEF void AK_Async_Stack_Index32_Push_Sync(ak_async_stack_index32* StackIndex, uint32_t Index) {
+    ak_async_stack_index32__key* CurrentTop = (ak_async_stack_index32__key*)&StackIndex->Head.Nonatomic;
+    uint32_t Current = CurrentTop->KeyIndex.Index;
+    StackIndex->NextIndices[Index] = Current;
+    CurrentTop->KeyIndex.Index = Index;
+}
+
+AKATOMICDEF void AK_Async_Stack_Index32_Push(ak_async_stack_index32* StackIndex, uint32_t Index) {
+    for(;;) {
+        ak_async_stack_index32__key CurrentTop = { AK_Atomic_Load_U64_Relaxed(&StackIndex->Head)};
+        uint32_t Current = CurrentTop.KeyIndex.Index;
+        StackIndex->NextIndices[Index] = Current;
+        ak_async_stack_index32__key NewTop = AK_Async_Stack_Index32__Make_Key(Index, CurrentTop.KeyIndex.Key+1); /*Increment key to avoid ABA problem*/
+        /*Add job index to the freelist atomically*/
+        if(AK_Atomic_Compare_Exchange_Bool_U64_Explicit(&StackIndex->Head, CurrentTop.ID, NewTop.ID, AK_ATOMIC_MEMORY_ORDER_RELEASE, AK_ATOMIC_MEMORY_ORDER_RELAXED)) {
+            return;
+        }
+    }
+}
+
+AKATOMICDEF uint32_t AK_Async_Stack_Index32_Pop(ak_async_stack_index32* StackIndex) {
+    for(;;) {
+        ak_async_stack_index32__key CurrentTop = { AK_Atomic_Load_U64_Relaxed(&StackIndex->Head)};
+
+        uint32_t Index = CurrentTop.KeyIndex.Index;
+        if(Index == AK_ASYNC_STACK_INDEX32_INVALID) {
+            /*No more jobs avaiable*/
+            return AK_ASYNC_STACK_INDEX32_INVALID;
+        }
+        AK_ASYNC_STACK_INDEX_ASSERT(Index < StackIndex->Capacity); /*Overflow*/
+        uint32_t Next = StackIndex->NextIndices[Index];
+        ak_async_stack_index32__key NewTop = AK_Async_Stack_Index32__Make_Key(Next, CurrentTop.KeyIndex.Key+1); /*Increment key to avoid ABA problem*/
+        /*Atomically update the job freelist*/
+        if(AK_Atomic_Compare_Exchange_Bool_U64_Explicit(&StackIndex->Head, CurrentTop.ID, NewTop.ID, AK_ATOMIC_MEMORY_ORDER_ACQUIRE, AK_ATOMIC_MEMORY_ORDER_RELAXED)) {
+            return Index;
+        }
+    }
+}
+
+AKATOMICDEF bool AK_Async_Stack_Index32_Alloc(ak_async_stack_index32* StackIndex, uint32_t Capacity, void* AllocUserData) {
+    size_t AllocationSize = Capacity*sizeof(uint32_t);
+    void* Memory = AK_ASYNC_STACK_INDEX_MALLOC(AllocationSize, AllocUserData);
+    if(!Memory) return false;
+
+    AK_ASYNC_STACK_INDEX_MEMSET(Memory, 0, AllocationSize);
+    AK_Async_Stack_Index32_Init_Raw(StackIndex, (uint32_t*)Memory, Capacity);
+    StackIndex->AllocUserData = AllocUserData;
+    return true;
+}
+
+AKATOMICDEF void AK_Async_Stack_Index32_Free(ak_async_stack_index32* StackIndex) {
+    if(StackIndex->NextIndices) {
+        AK_ASYNC_STACK_INDEX_FREE(StackIndex->NextIndices, StackIndex->AllocUserData);
+    }
+    AK_ASYNC_STACK_INDEX_MEMSET(StackIndex, 0, sizeof(ak_async_stack_index32));
+}
+
+#endif
+
+#ifndef AK_DISABLE_ASYNC_SLOT_MAP
+
+#ifndef AK_ASYNC_SLOT_MAP_NO_STDIO
+#include <stdio.h>
+#endif
+
+#if !defined(AK_ASYNC_SLOT_MAP_MALLOC)
+#define AK_ASYNC_SLOT_MAP_MALLOC(size, user_data) ((void)(user_data), malloc(size))
+#define AK_ASYNC_SLOT_MAP_FREE(ptr, user_data) ((void)(user_data), free(ptr))
+#endif
+
+#if !defined(AK_ASYNC_SLOT_MAP_MEMSET)
+#define AK_ASYNC_SLOT_MAP_MEMSET(mem, index, size) memset(mem, index, size)
+#endif
+
+#if !defined(AK_ASYNC_SLOT_MAP_ASSERT)
+#include <assert.h>
+#define AK_ASYNC_SLOT_MAP_ASSERT(cond) assert(cond)
+#endif
+
+AKATOMICDEF void AK_Async_Slot_Map64_Init_Raw(ak_async_slot_map64* SlotMap, uint32_t* IndicesPtr, ak_slot64* SlotsPtr, uint32_t Capacity) {
+    AK_Async_Stack_Index32_Init_Raw(&SlotMap->FreeIndices, IndicesPtr, Capacity);
+    SlotMap->Slots = (ak_slot64__internal*)SlotsPtr;
+
+    uint32_t i; 
+    for(i = 0; i < Capacity; i++) {
+        /*Add all the entries to the freelist since every job is free to begin with. 
+        This can be done synchronously without worrying about the stack key and aba problem */
+        AK_Async_Stack_Index32_Push_Sync(&SlotMap->FreeIndices, i);
+
+        SlotMap->Slots[i].Data.Index = i;
+        SlotMap->Slots[i].Data.Generation.Nonatomic = 1;
+    }
+}
+
+AKATOMICDEF bool AK_Async_Slot_Map64_Is_Allocated(ak_async_slot_map64* SlotMap, ak_slot64 Slot) {
+    ak_slot64__internal SlotID = {Slot};
+    AK_ASYNC_SLOT_MAP_ASSERT(SlotID.Data.Index < SlotMap->FreeIndices.Capacity); /*Overflow!*/
+    return AK_Atomic_Load_U32_Relaxed(&SlotMap->Slots[SlotID.Data.Index].Data.Generation) == SlotID.Data.Generation.Nonatomic;
+}
+
+AKATOMICDEF ak_slot64 AK_Async_Slot_Map64_Alloc_Slot(ak_async_slot_map64* SlotMap) {
+    uint32_t Index = AK_Async_Stack_Index32_Pop(&SlotMap->FreeIndices);
+    if(Index == AK_ASYNC_STACK_INDEX32_INVALID) return 0;
+
+    AK_ASYNC_SLOT_MAP_ASSERT(Index < SlotMap->FreeIndices.Capacity); /*Overflow*/
+    ak_slot64__internal Result = SlotMap->Slots[Index];
+    AK_ASYNC_SLOT_MAP_ASSERT(Index == Result.Data.Index); /*Index corruption!*/
+    return Result.Slot;
+}
+
+AKATOMICDEF void AK_Async_Slot_Map64_Free_Slot(ak_async_slot_map64* SlotMap, ak_slot64 Slot) {
+    ak_slot64__internal SlotID = {Slot};
+    uint32_t NextGenerationIndex = SlotID.Data.Generation.Nonatomic+1;
+    if(NextGenerationIndex == 0) NextGenerationIndex = 1; /*Generation cannot be 0*/
+    AK_ASYNC_SLOT_MAP_ASSERT(SlotID.Data.Index < SlotMap->FreeIndices.Capacity); /*Overflow*/
+    ak_slot64__internal* SlotMapSlotID = SlotMap->Slots + SlotID.Data.Index;
+    AK_ASYNC_SLOT_MAP_ASSERT(SlotMapSlotID->Data.Index == SlotID.Data.Index);
+    if(AK_Atomic_Compare_Exchange_Bool_U32(&SlotMapSlotID->Data.Generation, SlotID.Data.Generation.Nonatomic, NextGenerationIndex, AK_ATOMIC_MEMORY_ORDER_ACQ_REL)) {
+        AK_Async_Stack_Index32_Push(&SlotMap->FreeIndices, SlotID.Data.Index);
+    } else {
+        AK_ASYNC_SLOT_MAP_ASSERT(false); /*Tried to delete an invalid slot*/
+    }
+}
+AKATOMICDEF bool AK_Async_Slot_Map64_Alloc(ak_async_slot_map64* SlotMap, uint32_t Capacity, void* AllocUserData) {
+    size_t AllocationSize = (sizeof(uint32_t)+sizeof(ak_slot64))*Capacity;
+    void* Memory = AK_ASYNC_SLOT_MAP_MALLOC(AllocationSize, AllocUserData);
+    if(!Memory) return false;
+
+    uint32_t* IndicesPtr = (uint32_t*)Memory;
+    ak_slot64* SlotsPtr = (ak_slot64*)(IndicesPtr+Capacity);
+    AK_Async_Slot_Map64_Init_Raw(SlotMap, IndicesPtr, SlotsPtr, Capacity);
+    SlotMap->AllocUserData = AllocUserData;
+    return true;
+}
+
+AKATOMICDEF void AK_Async_Slot_Map64_Free(ak_async_slot_map64* SlotMap) {
+    if(SlotMap->Slots) {
+        AK_ASYNC_SLOT_MAP_FREE(SlotMap->FreeIndices.NextIndices, SlotMap->AllocUserData);
+    }
+    AK_ASYNC_SLOT_MAP_MEMSET(SlotMap, 0, sizeof(ak_async_slot_map64));
+}
+
+#endif
+
 #ifndef AK_DISABLE_JOB_SYSTEM
 
 #ifndef AK_JOB_SYSTEM_NO_STDIO
@@ -1761,21 +1998,6 @@ AKATOMICDEF void AK_LW_Semaphore_Add(ak_lw_semaphore* Semaphore, int32_t Addend)
 #endif
 
 typedef struct ak__job ak__job;
-
-typedef union {
-	uint64_t ID;
-	struct {
-		uint32_t Index;
-		uint32_t Key;
-	} KeyIndex;
-} ak_job__stack_index;
-
-static ak_job__stack_index AK_Job__Stack_Index_Make(uint32_t Index, uint32_t Key) {
-    ak_job__stack_index Result;
-    Result.KeyIndex.Index = Index;
-    Result.KeyIndex.Key = Key;
-    return Result;
-}
 
 #define AK__INVALID_JOB_INDEX ((uint32_t)-1)
 struct ak__job {
@@ -1809,10 +2031,9 @@ struct ak_job_system {
     ak_tls                TLS;
 
     /*Job information*/
-    uint32_t*       FreeJobIndices; /*Array of max job count*/
-    ak_atomic_u64   FreeJobHead; /*First entry in the free stack*/
-    ak__job*        Jobs; /*Array of max job count*/
-    ak_lw_semaphore JobSemaphore;
+    ak_async_stack_index32 FreeJobIndices;
+    ak__job*               Jobs; /*Array of max job count*/
+    ak_lw_semaphore        JobSemaphore;
     
     /*Thread information*/
     uint32_t        ThreadCount; /*The max amount of active threads*/
@@ -1985,7 +2206,7 @@ static AK_THREAD_CALLBACK_DEFINE(AK_Job_System__Thread_Callback) {
     return 0;
 }
 
-ak_job_system* AK_Job_System_Create(uint32_t MaxJobCount, uint32_t ThreadCount, void* UserData) {
+AKATOMICDEF ak_job_system* AK_Job_System_Create(uint32_t MaxJobCount, uint32_t ThreadCount, void* UserData) {
     /*Need to account for the thread that created the job system as it will usually
       be the thread to push the initial jobs*/
     ThreadCount += 1;
@@ -2010,19 +2231,15 @@ ak_job_system* AK_Job_System_Create(uint32_t MaxJobCount, uint32_t ThreadCount, 
     AK_LW_Semaphore_Create(&JobSystem->JobSemaphore, 0);
 
     /*Job information*/
-    JobSystem->FreeJobIndices        = (uint32_t*)(JobSystem+1);
-    JobSystem->FreeJobHead.Nonatomic = AK__INVALID_JOB_INDEX;    
-    JobSystem->Jobs                  = (ak__job*)(JobSystem->FreeJobIndices+MaxJobCount);
-    AK_JOB_SYSTEM_ASSERT((((size_t)&JobSystem->FreeJobHead) % 8) == 0);
+    uint32_t* FreeJobIndices = (uint32_t*)(JobSystem+1);
+    AK_Async_Stack_Index32_Init_Raw(&JobSystem->FreeJobIndices, FreeJobIndices, MaxJobCount);
+    JobSystem->Jobs = (ak__job*)(FreeJobIndices+MaxJobCount);
 
     uint32_t i;
     for(i = 0; i < MaxJobCount; i++) {
         /*Add all the entries to the freelist since every job is free to begin with. 
           This can be done synchronously without worrying about the stack key and aba problem */
-        ak_job__stack_index* CurrentTop = (ak_job__stack_index*)&JobSystem->FreeJobHead.Nonatomic;
-        uint32_t Current = CurrentTop->KeyIndex.Index;
-        JobSystem->FreeJobIndices[i] = Current;
-        CurrentTop->KeyIndex.Index = i;
+        AK_Async_Stack_Index32_Push_Sync(&JobSystem->FreeJobIndices, i);
 
         /*Set index and generation for the job. Generation of 0 is not valid*/
         JobSystem->Jobs[i].Index = i;
@@ -2059,7 +2276,7 @@ ak_job_system* AK_Job_System_Create(uint32_t MaxJobCount, uint32_t ThreadCount, 
     return JobSystem;
 }
 
-void AK_Job_System_Delete(ak_job_system* JobSystem) {
+AKATOMICDEF void AK_Job_System_Delete(ak_job_system* JobSystem) {
     /*Set all the threads status to IsRunning false before we wake the condition variable*/
     uint32_t ThreadIndex;
     for(ThreadIndex = 0; ThreadIndex < JobSystem->ThreadCount; ThreadIndex++) {
@@ -2078,26 +2295,12 @@ void AK_Job_System_Delete(ak_job_system* JobSystem) {
     AK_JOB_SYSTEM_FREE(JobSystem, JobSystem->UserData);
 }
 
-ak_job_id AK_Job_System_Alloc_Job(ak_job_system* JobSystem, ak_job_callback_func* JobCallback, void* JobData, ak_job_id ParentID, ak_job_flags Flags) {
+AKATOMICDEF ak_job_id AK_Job_System_Alloc_Job(ak_job_system* JobSystem, ak_job_callback_func* JobCallback, void* JobData, ak_job_id ParentID, ak_job_flags Flags) {
     /*First need to find a free job index atomically*/
-    uint32_t FreeIndex;
-
-    for(;;) {
-        ak_job__stack_index CurrentTop = { AK_Atomic_Load_U64_Relaxed(&JobSystem->FreeJobHead)};
-
-        uint32_t TargetFreeIndex = CurrentTop.KeyIndex.Index;
-        if(TargetFreeIndex == AK__INVALID_JOB_INDEX) {
-            /*No more jobs avaiable*/
-            return 0;
-        }
-        AK_JOB_SYSTEM_ASSERT(TargetFreeIndex < JobSystem->MaxJobCount); /*Overflow*/
-        uint32_t Next = JobSystem->FreeJobIndices[TargetFreeIndex];
-        ak_job__stack_index NewTop = AK_Job__Stack_Index_Make(Next, CurrentTop.KeyIndex.Key+1); /*Increment key to avoid ABA problem*/
-        /*Atomically update the job freelist*/
-        if(AK_Atomic_Compare_Exchange_Bool_U64_Explicit(&JobSystem->FreeJobHead, CurrentTop.ID, NewTop.ID, AK_ATOMIC_MEMORY_ORDER_ACQUIRE, AK_ATOMIC_MEMORY_ORDER_RELAXED)) {
-            FreeIndex = TargetFreeIndex;
-            break;
-        }
+    uint32_t FreeIndex = AK_Async_Stack_Index32_Pop(&JobSystem->FreeJobIndices);
+    if(FreeIndex == AK_ASYNC_STACK_INDEX32_INVALID) {
+        /*No more jobs avaiable*/
+        return 0;
     }
 
     ak__job* Job = JobSystem->Jobs+FreeIndex;
@@ -2122,11 +2325,11 @@ ak_job_id AK_Job_System_Alloc_Job(ak_job_system* JobSystem, ak_job_callback_func
     return JobID;
 }
 
-ak_job_id AK_Job_System_Alloc_Empty_Job(ak_job_system* JobSystem) {
+AKATOMICDEF ak_job_id AK_Job_System_Alloc_Empty_Job(ak_job_system* JobSystem) {
     return AK_Job_System_Alloc_Job(JobSystem, NULL, NULL, 0, 0);
 }
 
-void AK_Job_System_Free_Job(ak_job_system* JobSystem, ak_job_id JobID) {
+AKATOMICDEF void AK_Job_System_Free_Job(ak_job_system* JobSystem, ak_job_id JobID) {
     uint32_t Index = (uint32_t)(JobID);
     AK_JOB_SYSTEM_ASSERT(Index < JobSystem->MaxJobCount); /*Overflow*/
     ak__job* Job = JobSystem->Jobs + Index;
@@ -2135,21 +2338,10 @@ void AK_Job_System_Free_Job(ak_job_system* JobSystem, ak_job_id JobID) {
     if(NextGenerationIndex == 0) NextGenerationIndex = 1;
     AK_Atomic_Store_U32(&Job->Generation, NextGenerationIndex, AK_ATOMIC_MEMORY_ORDER_RELEASE);
     AK_Atomic_Thread_Fence_Seq_Cst();
-
-    for(;;) {
-        ak_job__stack_index CurrentTop = { AK_Atomic_Load_U64_Relaxed(&JobSystem->FreeJobHead)};
-
-        uint32_t Current = CurrentTop.KeyIndex.Index;
-        JobSystem->FreeJobIndices[Index] = Current;
-        ak_job__stack_index NewTop = AK_Job__Stack_Index_Make(Index, CurrentTop.KeyIndex.Key+1); /*Increment key to avoid ABA problem*/
-        /*Add job index to the freelist atomically*/
-        if(AK_Atomic_Compare_Exchange_Bool_U64_Explicit(&JobSystem->FreeJobHead, CurrentTop.ID, NewTop.ID, AK_ATOMIC_MEMORY_ORDER_RELEASE, AK_ATOMIC_MEMORY_ORDER_RELAXED)) {
-            return;
-        }
-    }
+    AK_Async_Stack_Index32_Push(&JobSystem->FreeJobIndices, Index);
 }
 
-void AK_Job_System_Add_Job(ak_job_system* JobSystem, ak_job_id JobID) {
+AKATOMICDEF void AK_Job_System_Add_Job(ak_job_system* JobSystem, ak_job_id JobID) {
     ak__job_thread* JobThread = AK_Job_System__Get_Local_Thread(JobSystem);
     ak__job* Job = AK_Job_System__Get_Job(JobSystem, JobID);
     if(Job) {
@@ -2157,7 +2349,7 @@ void AK_Job_System_Add_Job(ak_job_system* JobSystem, ak_job_id JobID) {
     }
 }
 
-void AK_Job_System_Wait_For_Job(ak_job_system* JobSystem, ak_job_id JobID) {
+AKATOMICDEF void AK_Job_System_Wait_For_Job(ak_job_system* JobSystem, ak_job_id JobID) {
     while(AK_Job_System__Get_Job(JobSystem, JobID)) {
         ak__job_thread* JobThread = AK_Job_System__Get_Local_Thread(JobSystem);
         AK_Job_System__Process_Next_Job(JobSystem, JobThread);

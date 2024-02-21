@@ -7,8 +7,8 @@
             "label": "Build Win32",
             "type": "shell",
             "windows": {
-                "command": "${workspaceFolder}/build/build_win32.bat clang release env32",
-                "problemMatcher": "$msCompile"
+                "command": "${workspaceFolder}/build/build_win32.bat release env64",
+                "problemMatcher": ["$msCompile", "$gcc"]
             },
             "group": {
                 "kind": "build",
@@ -19,7 +19,7 @@
             "label": "Build Android",
             "type": "shell",
             "windows": {
-                "command": "${workspaceFolder}/build/build_android.bat release",
+                "command": "${workspaceFolder}/build/build_android.bat release all",
                 "problemMatcher": "$gcc"
             },
             "group": {
