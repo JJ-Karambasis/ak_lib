@@ -26,19 +26,19 @@
             "problemMatcher": "$gcc",
             "group": {
                 "kind": "build",
-                "isDefault": true
+                "isDefault": false
             }
         },
         {
             "label": "Build OSX",
             "type": "shell",
             "osx": {
-                "command": "${workspaceFolder}/build/build.sh",
+                "command": "${workspaceFolder}/build/build_osx.sh release env64",
                 "problemMatcher": "$gcc",
             },
             "group": {
                 "kind": "build",
-                "isDefault": false
+                "isDefault": true
             }
         }, 
         {

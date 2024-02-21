@@ -19,6 +19,10 @@ extern "C" {
 #   define AK_ATOMIC_GCC_COMPILER
 #   define AK_ATOMIC_POSIX_OS
 
+#   if defined(__APPLE__)
+#       define AK_ATOMIC_OSX_OS
+#   endif
+
 #   if defined(__arm__)
 #       define AK_ATOMIC_ARM_CPU
 #       define AK_ATOMIC_PTR_SIZE 4
@@ -289,9 +293,18 @@ typedef struct ak_mutex {
     pthread_mutex_t Mutex;
 } ak_mutex;
 
+#ifdef AK_ATOMIC_OSX_OS
+#include <mach/mach.h>
+
+typedef struct ak_semaphore {
+    semaphore_t Semaphore;
+} ak_semaphore;
+
+#else
 typedef struct ak_semaphore {
     sem_t Semaphore;
 } ak_semaphore;
+#endif
 
 typedef struct ak_condition_variable {
     pthread_cond_t Variable;
@@ -1693,7 +1706,29 @@ AKATOMICDEF void AK_Mutex_Lock(ak_mutex* Mutex) {
 AKATOMICDEF bool AK_Mutex_Try_Lock(ak_mutex* Mutex) {
     return pthread_mutex_trylock(&Mutex->Mutex);
 }
+#ifdef AK_ATOMIC_OSX_OS
+AKATOMICDEF bool AK_Semaphore_Create(ak_semaphore* Semaphore, int32_t InitialCount) {
+    return semaphore_create(mach_task_self(), &Semaphore->Semaphore, SYNC_POLICY_FIFO, 0) == KERN_SUCCESS;
+}
 
+AKATOMICDEF void AK_Semaphore_Delete(ak_semaphore* Semaphore) {
+    semaphore_destroy(mach_task_self(), Semaphore->Semaphore);
+}
+
+AKATOMICDEF void AK_Semaphore_Increment(ak_semaphore* Semaphore) {
+    semaphore_signal(Semaphore->Semaphore);
+}
+
+AKATOMICDEF void AK_Semaphore_Decrement(ak_semaphore* Semaphore) {
+    semaphore_wait(Semaphore->Semaphore);
+}
+
+AKATOMICDEF void AK_Semaphore_Add(ak_semaphore* Semaphore, int32_t Addend) {
+    int32_t i;
+    for(i = 0; i < Addend; i++)
+        semaphore_signal(Semaphore->Semaphore);
+}
+#else
 AKATOMICDEF bool AK_Semaphore_Create(ak_semaphore* Semaphore, int32_t InitialCount) {
     return sem_init(&Semaphore->Semaphore, 0, InitialCount) == 0;
 }
@@ -1711,14 +1746,11 @@ AKATOMICDEF void AK_Semaphore_Decrement(ak_semaphore* Semaphore) {
 }
 
 AKATOMICDEF void AK_Semaphore_Add(ak_semaphore* Semaphore, int32_t Addend) {
-    uint32_t i;
+    int32_t i;
     for(i = 0; i < Addend; i++)
         sem_post(&Semaphore->Semaphore);
 }
-
-AKATOMICDEF bool AK_Semaphore_Try_Decrement(ak_semaphore* Semaphore) {
-    return sem_trywait(&Semaphore->Semaphore);
-}
+#endif
 
 AKATOMICDEF bool AK_Condition_Variable_Create(ak_condition_variable* ConditionVariable) {
     return pthread_cond_init(&ConditionVariable->Variable, NULL) == 0;
