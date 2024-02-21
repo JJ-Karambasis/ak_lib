@@ -22,7 +22,7 @@ if [ ! -d "$BasePath/tests/ak_atomic_test_bin/" ]; then
 fi
 
 gcc_warnings="-Werror -Wall"
-gcc_common="-I$BasePath -fPIC -ansi -m32 -pthread $gcc_warnings"
+gcc_common="-I$BasePath -fPIC -ansi -m32 $gcc_warnings"
 gcc_debug="gcc -g -O0 -DDEBUG $gcc_common"
 gcc_release="gcc -g -O2 $gcc_common"
 gcc_out="-o"
