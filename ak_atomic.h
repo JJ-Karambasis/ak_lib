@@ -275,7 +275,7 @@ typedef struct ak_tls {
 } ak_tls;
 
 #elif defined(AK_ATOMIC_POSIX_OS)
-
+#include <time.h>
 #include <pthread.h>
 #include <semaphore.h>
 
@@ -307,6 +307,8 @@ typedef struct ak_tls {
 
 AKATOMICDEF uint32_t AK_Get_Processor_Thread_Count(void);
 AKATOMICDEF void     AK_Sleep(uint32_t Milliseconds);
+AKATOMICDEF uint64_t AK_Query_Performance_Counter();
+AKATOMICDEF uint64_t AK_Query_Performance_Frequency();
 
 AKATOMICDEF bool     AK_Thread_Create(ak_thread* Thread, ak_thread_callback_func* Callback, void* UserData);
 AKATOMICDEF void     AK_Thread_Delete(ak_thread* Thread);
@@ -1474,6 +1476,18 @@ AKATOMICDEF void AK_Sleep(uint32_t Milliseconds) {
     Sleep(Milliseconds);
 }
 
+AKATOMICDEF uint64_t AK_Query_Performance_Counter() {
+    uint64_t Result;
+    QueryPerformanceCounter((LARGE_INTEGER*)&Result);
+    return Result;
+}
+
+AKATOMICDEF uint64_t AK_Query_Performance_Frequency() {
+    uint64_t Result;
+    QueryPerformanceFrequency((LARGE_INTEGER*)&Result);
+    return Result;  
+}
+
 static DWORD WINAPI AK_Thread__Internal_Proc(LPVOID Parameter) {
     ak_thread* Thread = (ak_thread*)Parameter;
     return Thread->Callback(Thread, Thread->UserData);
@@ -1603,7 +1617,26 @@ AKATOMICDEF uint32_t AK_Get_Processor_Thread_Count(void) {
 }
 
 AKATOMICDEF void AK_Sleep(uint32_t Milliseconds) {
-    usleep(Milliseconds*1000);
+    struct timespec Time;
+    Time.tv_sec = Milliseconds / 1000;
+    Time.tv_nsec = (Milliseconds % 1000) * 1000000;
+    nanosleep(&Time, NULL);
+}
+
+#define AK__NS_PER_SECOND 1000000000
+AKATOMICDEF uint64_t AK_Query_Performance_Counter() {
+    struct timespec Now;
+    clock_gettime(CLOCK_MONOTONIC_RAW, &Now);
+
+    uint64_t Result = Now.tv_sec;
+    Result *= AK__NS_PER_SECOND;
+    Result += Now.tv_nsec;
+
+    return Result;
+}
+
+AKATOMICDEF uint64_t AK_Query_Performance_Frequency() {
+    return AK__NS_PER_SECOND;
 }
 
 static void* AK_Thread__Internal_Proc(void* Parameter) {

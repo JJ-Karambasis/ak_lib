@@ -7,42 +7,6 @@
 #include <assert.h>
 #include "utest.h"
 
-#ifdef AK_ATOMIC_WIN32_OS
-uint64_t Query_Performance_Counter() {
-    uint64_t Result;
-    QueryPerformanceCounter((LARGE_INTEGER*)&Result);
-    return Result;
-}
-
-uint64_t Query_Performance_Frequency() {
-    uint64_t Result;
-    QueryPerformanceFrequency((LARGE_INTEGER*)&Result);
-    return Result;
-}
-
-#elif defined(AK_ATOMIC_POSIX_OS)
-#include <time.h>
-
-static const uint64_t NS_PER_SECOND = 1000000000;
-uint64_t Query_Performance_Counter() {
-    struct timespec Now;
-    clock_gettime(CLOCK_MONOTONIC_RAW, &Now);
-
-    uint64_t Result = Now.tv_sec;
-    Result *= NS_PER_SECOND;
-    Result += Now.tv_nsec;
-
-    return Result;
-}
-
-uint64_t Query_Performance_Frequency() {
-    return NS_PER_SECOND;
-}
-
-#else
-#error "Performance counter not implemented"
-#endif
-
 typedef struct {
     ak_atomic_u32 X;
     ak_atomic_u32 Y;
@@ -1001,7 +965,7 @@ UTEST(AK_Job_System, Test) {
     ak_job_system* JobSystem = AK_Job_System_Create(MaxJobCount+1, ThreadCount, NULL);
     ASSERT_TRUE(JobSystem);
 
-    uint64_t StartTime = Query_Performance_Counter();
+    uint64_t StartTime = AK_Query_Performance_Counter();
 
     ak_job_id RootJob = AK_Job_System_Alloc_Empty_Job(JobSystem);
     uint32_t i;
@@ -1016,7 +980,7 @@ UTEST(AK_Job_System, Test) {
 
     AK_Job_System_Add_Job(JobSystem, RootJob);
     AK_Job_System_Wait_For_Job(JobSystem, RootJob);
-    printf("Time: %fms\n", ((double)(Query_Performance_Counter()-StartTime)/(double)Query_Performance_Frequency())*1000.0);
+    printf("Time: %fms\n", ((double)(AK_Query_Performance_Counter()-StartTime)/(double)AK_Query_Performance_Frequency())*1000.0);
     AK_Job_System_Delete(JobSystem);
 
     for(i = 0; i < MaxJobCount; i++) {
@@ -1029,7 +993,9 @@ UTEST(AK_Job_System, Test) {
 }
 
 AK_JOB_CALLBACK_DEFINE(AK_Job_System_Sleep_Test_Callback) {
+    uint64_t StartTime = AK_Query_Performance_Counter();
     AK_Sleep(10000);
+    printf("Time: %fms\n", ((double)(AK_Query_Performance_Counter()-StartTime)/(double)AK_Query_Performance_Frequency())*1000.0);
     return AK_JOB_STATUS_COMPLETE;
 }
 
