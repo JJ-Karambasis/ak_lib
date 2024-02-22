@@ -21,9 +21,9 @@ set linker_flags=-llog -landroid
 set sysroot=--sysroot=%ndk_path%\toolchains\llvm\prebuilt\windows-x86_64\sysroot
 
 set compile_warnings=-Werror -Wall
-set compile_common=-I%BasePath% -I%ndk_native_app_glue_path% %sysroot% -DANDROID_BUILD -fdiagnostics-absolute-paths -fPIC -std=c89 %compile_warnings%
-set compile_debug=-g -O0 %compile_common%
-set compile_release=-g -O2 %compile_common%
+set compile_common=-g -I%BasePath% -I%ndk_native_app_glue_path% %sysroot% -DANDROID_BUILD -fdiagnostics-absolute-paths -fPIC -std=c89 %compile_warnings%
+set compile_debug=-O0 %compile_common%
+set compile_release=-O2 %compile_common%
 set compile_out=-o
 set compile_shared_library=-shared
 

@@ -53,6 +53,12 @@ extern "C" {
 #define AK_ATOMIC__COMPILE_TIME_ASSERT2(X,L) AK_ATOMIC__COMPILE_TIME_ASSERT3(X,L)
 #define AK_ATOMIC__COMPILE_TIME_ASSERT(X)    AK_ATOMIC__COMPILE_TIME_ASSERT2(X,__LINE__)
 
+#ifdef AK_ATOMIC_POSIX_OS
+/*c89 posix won't seem to recognized the time functions
+  without this (nanosleep clock_getttime) */
+#define _POSIX_C_SOURCE 199309L
+#endif
+
 /*
 If stdint is not included for your platform, define AK_ATOMIC_CUSTOM_TYPES
 and define the stdint types:

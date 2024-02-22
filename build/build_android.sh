@@ -45,9 +45,9 @@ fi
 linker_flags="-llog -landroid"
 
 compile_warnings="-Werror -Wall"
-compile_common=-"I$BasePath -I$ndk_native_app_glue_path --sysroot=$ndk_sys_root -DANDROID_BUILD -fdiagnostics-absolute-paths -fPIC -std=c89 $compile_warnings"
-compile_debug="-g -O0 $compile_common"
-compile_release="-g -O2 $compile_common"
+compile_common="-g -I$BasePath -I$ndk_native_app_glue_path --sysroot=$ndk_sys_root -DANDROID_BUILD -fdiagnostics-absolute-paths -fPIC -std=c89 $compile_warnings"
+compile_debug="-O0 $compile_common"
+compile_release="-O2 $compile_common"
 compile_out="-o"
 compile_shared_library="-shared"
 
