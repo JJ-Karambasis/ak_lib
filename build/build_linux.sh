@@ -60,8 +60,8 @@ intel_debug="icx -O0 $intel_common"
 intel_release="icx -O2 $intel_common"
 intel_out="-o"
 
-clang_debug="icx -O0 $clang_common"
-clang_release="icx -O2 $clang_common"
+clang_debug="clang -O0 $clang_common"
+clang_release="clang -O2 $clang_common"
 clang_out="-o"
 
 if [ $gcc -eq 1 ]; then compile_debug=${gcc_debug}; fi
@@ -84,5 +84,5 @@ if [ ! -d "$BasePath/tests/ak_atomic_test_bin/" ]; then
 fi
 
 pushd "$BasePath/tests/ak_atomic_test_bin/"
-${compile} $BasePath/tests/ak_atomic_test.c ${gcc_out} ak_atomic_test
+    ${compile} $BasePath/tests/ak_atomic_test.c ${compile_out} ak_atomic_test
 popd

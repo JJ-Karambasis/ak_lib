@@ -26,6 +26,9 @@ extern "C" {
 #   if defined(__arm__)
 #       define AK_ATOMIC_ARM_CPU
 #       define AK_ATOMIC_PTR_SIZE 4
+#       if defined(__thumb__)
+            #define AK_ATOMIC_ARM_THUMB 1
+#       endif
 #   elif defined(__aarch64__)
 #       define AK_ATOMIC_AARCH64_CPU
 #       define AK_ATOMIC_PTR_SIZE 8
@@ -53,10 +56,11 @@ extern "C" {
 #define AK_ATOMIC__COMPILE_TIME_ASSERT2(X,L) AK_ATOMIC__COMPILE_TIME_ASSERT3(X,L)
 #define AK_ATOMIC__COMPILE_TIME_ASSERT(X)    AK_ATOMIC__COMPILE_TIME_ASSERT2(X,__LINE__)
 
-#ifdef AK_ATOMIC_POSIX_OS
+#if defined(AK_ATOMIC_POSIX_OS)
 /*c89 posix won't seem to recognized the time functions
   without this (nanosleep clock_getttime) */
 #define _POSIX_C_SOURCE 199309L
+#define _DARWIN_C_SOURCE
 #endif
 
 /*
@@ -267,6 +271,7 @@ typedef struct ak_tls {
 
 #elif defined(AK_ATOMIC_POSIX_OS)
 #include <time.h>
+#include <unistd.h>
 #include <pthread.h>
 #include <semaphore.h>
 
@@ -752,6 +757,9 @@ AKATOMICDEF uint32_t AK_Atomic_Compare_Exchange_U32_Relaxed(ak_atomic_u32* Objec
         "1: ldrex   %0, [%3]\n"
         "   mov     %1, #0\n"
         "   teq     %0, %4\n"
+#ifdef AK_ATOMIC_ARM_THUMB
+        "   it      eq\n"
+#endif
         "   strexeq %1, %5, [%3]\n"
         "   cmp     %1, #0\n"
         "   bne     1b\n"
@@ -845,7 +853,13 @@ AKATOMICDEF uint64_t AK_Atomic_Compare_Exchange_U64_Relaxed(ak_atomic_u64* Objec
         "1: ldrexd   %0, %H0, [%3]\n"
         "   mov      %1, #0\n"
         "   teq      %0, %4\n"
+#ifdef AK_ATOMIC_ARM_THUMB
+        "   it      eq\n"
+#endif
         "   teqeq    %H0, %H4\n"
+#ifdef AK_ATOMIC_ARM_THUMB
+        "   it      eq\n"
+#endif
         "   strexdeq %1, %5, %H5, [%3]\n"
         "   cmp      %1, #0\n"
         "   bne      1b\n"

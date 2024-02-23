@@ -96,12 +96,6 @@ void android_main(struct android_app* App) {
                 "",
                 "--filter=AK_Job_System.*"
             };
-            uint64_t OldValue = 10;
-            ak_atomic_u64 TestValue; 
-            AK_Atomic_Store_U64_Relaxed(&TestValue, OldValue);
-            uint64_t ReturnValue = AK_Atomic_Compare_Exchange_U64_Relaxed(&TestValue, OldValue, 100);
-            AK_JOB_SYSTEM_ASSERT(ReturnValue == 10);
-
             utest_main(2, Filters);
             ANativeActivity_finish(App->activity);
             TestContext.IsFinished = true;

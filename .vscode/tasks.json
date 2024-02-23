@@ -33,7 +33,7 @@
             "label": "Build OSX",
             "type": "shell",
             "osx": {
-                "command": "${workspaceFolder}/build/build_osx.sh release env64",
+                "command": "${workspaceFolder}/build/build_osx.sh env32 release",
                 "problemMatcher": "$gcc",
             },
             "group": {

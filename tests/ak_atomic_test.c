@@ -1258,7 +1258,7 @@ UTEST(AK_Job_System, SleepTest) {
 
 #endif
 
-#ifndef ANDROID_BUILD
+#if !defined(ANDROID_BUILD)
 UTEST_MAIN()
 #endif
 
