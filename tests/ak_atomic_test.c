@@ -967,7 +967,7 @@ AK_JOB_CALLBACK_DEFINE(AK_Job_System_Large_User_Data_Test_Callback) {
 UTEST(AK_Job_System, UserData) {
     const uint32_t Iterations = 100000;
 
-    ak_job_system* JobSystem = AK_Job_System_Create((Iterations*2)+1, AK_Get_Processor_Thread_Count(), NULL);
+    ak_job_system* JobSystem = AK_Job_System_Create((Iterations*2)+1, AK_Get_Processor_Thread_Count(), NULL, NULL);
 
     ak_job_id RootJob = AK_Job_System_Alloc_Empty_Job(JobSystem);
     uint32_t i;
@@ -1041,7 +1041,7 @@ UTEST(AK_Job_System, MainTest) {
     ThreadData.CounterTable = (uint32_t*)malloc(sizeof(uint32_t)*MaxJobCount);
     memset(ThreadData.CounterTable, 0, sizeof(uint32_t)*MaxJobCount);
 
-    ak_job_system* JobSystem = AK_Job_System_Create(MaxJobCount+1, ThreadCount, NULL);
+    ak_job_system* JobSystem = AK_Job_System_Create(MaxJobCount+1, ThreadCount, NULL, NULL);
     ASSERT_TRUE(JobSystem);
 
     uint64_t StartTime = AK_Query_Performance_Counter();
@@ -1170,7 +1170,7 @@ AK_JOB_CALLBACK_DEFINE(AK_Async_Job_Dependency_F) {
 UTEST(AK_Job_System, DependencyTest) {
     const uint32_t Iterations = 1000000;
 
-    ak_job_system* JobSystem = AK_Job_System_Create((6*Iterations)+1, AK_Get_Processor_Thread_Count(), NULL);
+    ak_job_system* JobSystem = AK_Job_System_Create((6*Iterations)+1, AK_Get_Processor_Thread_Count(), NULL, NULL);
 
     ak_job_system_dependency_test_data* DependencyDataArray = (ak_job_system_dependency_test_data*)malloc(Iterations*sizeof(ak_job_system_dependency_test_data));
     memset(DependencyDataArray, 0, Iterations*sizeof(ak_job_system_dependency_test_data));
@@ -1244,7 +1244,7 @@ AK_JOB_CALLBACK_DEFINE(AK_Job_System_Sleep_Test_Callback) {
 }
 
 UTEST(AK_Job_System, SleepTest) {
-    ak_job_system* JobSystem = AK_Job_System_Create(1, AK_Get_Processor_Thread_Count(), NULL);
+    ak_job_system* JobSystem = AK_Job_System_Create(1, AK_Get_Processor_Thread_Count(), NULL, NULL);
     ASSERT_TRUE(JobSystem);
 
     ak_job_data JobData = {0};
@@ -1254,6 +1254,49 @@ UTEST(AK_Job_System, SleepTest) {
 
     AK_Job_System_Wait_For_Job(JobSystem, SleepID);
     AK_Job_System_Delete(JobSystem);
+}
+
+typedef struct {
+    ak_atomic_u32 ThreadsStarted;
+    ak_atomic_u32 ThreadsUpdated;
+    ak_atomic_u32 ThreadsEnded;
+} ak_job_thread_callback_data;
+
+AK_JOB_THREAD_BEGIN_DEFINE(AK_Job_System_Thread_Begin_Test) {
+    ak_job_thread_callback_data* ThreadCallbackData = (ak_job_thread_callback_data*)UserData;
+    AK_Atomic_Increment_U32_Relaxed(&ThreadCallbackData->ThreadsStarted);
+}
+
+AK_JOB_THREAD_UPDATE_DEFINE(AK_Job_System_Thread_Update_Test) {
+    ak_job_thread_callback_data* ThreadCallbackData = (ak_job_thread_callback_data*)UserData;
+    AK_Atomic_Increment_U32_Relaxed(&ThreadCallbackData->ThreadsUpdated);
+}
+
+AK_JOB_THREAD_END_DEFINE(AK_Job_System_Thread_End_Test) {
+    ak_job_thread_callback_data* ThreadCallbackData = (ak_job_thread_callback_data*)UserData;
+    AK_Atomic_Increment_U32_Relaxed(&ThreadCallbackData->ThreadsEnded);
+}
+
+UTEST(AK_Job_System, ThreadCallbacks) {
+    const uint32_t ThreadCount = 8;
+    ak_job_thread_callback_data ThreadCallbackData = {0};
+
+    ak_job_thread_callbacks ThreadCallbacks = {0};
+    ThreadCallbacks.JobThreadBegin  = AK_Job_System_Thread_Begin_Test;
+    ThreadCallbacks.JobThreadEnd    = AK_Job_System_Thread_End_Test;
+    ThreadCallbacks.JobThreadUpdate = AK_Job_System_Thread_Update_Test;
+    ThreadCallbacks.UserData = &ThreadCallbackData;
+
+    ak_job_system* JobSystem = AK_Job_System_Create(1, ThreadCount, &ThreadCallbacks, NULL);
+    
+    ak_job_data JobData = {0};
+    ak_job_id JobID = AK_Job_System_Alloc_Job(JobSystem, JobData, 0, AK_JOB_FLAG_QUEUE_IMMEDIATELY_BIT);
+    AK_Job_System_Wait_For_Job(JobSystem, JobID);
+    AK_Job_System_Delete(JobSystem);
+
+    ASSERT_EQ(ThreadCallbackData.ThreadsStarted.Nonatomic, ThreadCount);
+    ASSERT_EQ(ThreadCallbackData.ThreadsEnded.Nonatomic, ThreadCount);
+    ASSERT_GE(ThreadCallbackData.ThreadsUpdated.Nonatomic, 1);
 }
 
 #endif
