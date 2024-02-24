@@ -2427,7 +2427,9 @@ static void AK_Job_Queue__Thread_Run(ak__job_queue* JobQueue) {
         if(ThreadCallbacks->JobThreadUpdate)
             ThreadCallbacks->JobThreadUpdate(JobSystem, &JobThread->Thread, ThreadCallbacks->UserData);
     }
-    
+
+    //Cleanup remaining jobs
+    while(AK_Job_System__Process_Next_Job(JobSystem, JobQueue));
 
     if(ThreadCallbacks->JobThreadEnd)
         ThreadCallbacks->JobThreadEnd(JobSystem, &JobThread->Thread, ThreadCallbacks->UserData);
