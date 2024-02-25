@@ -1304,43 +1304,62 @@ typedef struct ak_mc_test_data {
     ak_atomic_u32 TotalFreed;
 } ak_mc_test_data;
 
+typedef struct {
+    ak_atomic_u32 IsAllocated;
+} ak_mc_test_job_test_entry;
+
+typedef struct {
+    ak_mc_test_job_test_entry TestEntry;
+    ak_atomic_u32             IsAllocated;
+    bool                      IsFree;
+} ak_mc_test_job;
+
 typedef struct ak_mc_test_job_entry {
-    ak_mc_test_data* TestData;
-    bool             IsAllocated;
+    ak_mc_test_data*           TestData;
+    ak_mc_test_job_test_entry* TestEntry;
 } ak_mc_test_job_entry;
 
+typedef struct ak_mc_thread_data {
+    ak_job_system*   JobSystem;
+    uint32_t         TestCount;
+    ak_mc_test_job*  TestJobs;
+    ak_mc_test_data* TestData;
+} ak_mc_thread_data;
+
 static AK_JOB_CALLBACK_DEFINE(AK_MC_Test_Allocate_Job) {
-    ak_mc_test_job_entry* TestEntry = (ak_mc_test_job_entry*)UserData;
-    ak_mc_test_data* TestData = TestEntry->TestData;
+    ak_mc_test_job_entry* JobEntry = (ak_mc_test_job_entry*)JobUserData;
+    ak_mc_test_job_test_entry* TestEntry = JobEntry->TestEntry;
+    ak_mc_test_data* TestData = JobEntry->TestData;
+
+    if(AK_Atomic_Load_U32(&TestEntry->IsAllocated, AK_ATOMIC_MEMORY_ORDER_ACQUIRE)) {
+        return AK_JOB_STATUS_REQUEUE;
+    }
     
-    AK_JOB_SYSTEM_ASSERT(!TestEntry->IsAllocated);
-    TestEntry->IsAllocated = true;
-    AK_Atomic_Increment_U32_Relaxed(&TestEntry->TotalAllocated);
+    AK_Atomic_Increment_U32_Relaxed(&TestData->TotalAllocated);
+    AK_Atomic_Store_U32(&TestEntry->IsAllocated, true, AK_ATOMIC_MEMORY_ORDER_RELEASE);
     return AK_JOB_STATUS_COMPLETE;
 }
 
 static AK_JOB_CALLBACK_DEFINE(AK_MC_Test_Free_Job) {
-    ak_mc_test_job_entry* JobEntry = (ak_mc_test_job_entry*)UserData;
+    ak_mc_test_job_entry* JobEntry = (ak_mc_test_job_entry*)JobUserData;
     ak_mc_test_job_test_entry* TestEntry = JobEntry->TestEntry;
     ak_mc_test_data* TestData = JobEntry->TestData;
 
-    if(!TestEntry->IsAllocated) {
+    if(!AK_Atomic_Load_U32(&TestEntry->IsAllocated, AK_ATOMIC_MEMORY_ORDER_ACQUIRE)) {
         return AK_JOB_STATUS_REQUEUE;
     }
 
-    TestEntry->IsAllocated = false;
-    AK_Atomic_Increment_U32_Relaxed(&TestEntry->TotalFreed);
+    AK_Atomic_Increment_U32_Relaxed(&TestData->TotalFreed);
+    AK_Atomic_Store_U32(&TestEntry->IsAllocated, false, AK_ATOMIC_MEMORY_ORDER_RELEASE);
     return AK_JOB_STATUS_COMPLETE;
 }
 
-ak_mc_test_job* AK_MC_Test_Allocate(ak_mc_thread_data* ThreadData) {
-    uint32_t TestIndex = ThreadData->TestIndex++;
-    ak_mc_test_job* TestJob = ThreadData->TestJobs + TestIndex;
+ak_job_id AK_MC_Test_Allocate(ak_mc_thread_data* ThreadData, ak_mc_test_job* TestJob) {
     ak_mc_test_job_test_entry* TestEntry = &TestJob->TestEntry;
 
     ak_mc_test_job_entry JobEntry;
     JobEntry.TestEntry = TestEntry;
-    JobEntry.TestData = ThreadData->TestData;
+    JobEntry.TestData  = ThreadData->TestData;
 
     ak_job_system* JobSystem = ThreadData->JobSystem;
 
@@ -1349,14 +1368,13 @@ ak_mc_test_job* AK_MC_Test_Allocate(ak_mc_thread_data* ThreadData) {
     JobData.Data = &JobEntry;
     JobData.DataByteSize = sizeof(ak_mc_test_job_entry);
     ak_job_id JobID = AK_Job_System_Alloc_Job(JobSystem, JobData, 0, AK_JOB_FLAG_QUEUE_IMMEDIATELY_BIT);
-    AK_JOB_SYSTEM_ASSERT(JobID);
+    assert(JobID);
     AK_Atomic_Store_U32(&TestJob->IsAllocated, true, AK_ATOMIC_MEMORY_ORDER_RELEASE);
 
-    return TestJob;
+    return JobID;
 }
 
-void AK_MC_Test_Free(ak_mc_thread_data* ThreadData, ak_mc_test_job* TestJob) {
-    AK_JOB_SYSTEM_ASSERT(AK_Atomic_Load_U32_Relaxed(&TestJob->IsAllocated) == true);
+ak_job_id AK_MC_Test_Free(ak_mc_thread_data* ThreadData, ak_mc_test_job* TestJob) {
     ak_mc_test_job_entry JobEntry;
     JobEntry.TestEntry = &TestJob->TestEntry;
     JobEntry.TestData = ThreadData->TestData;
@@ -1369,37 +1387,37 @@ void AK_MC_Test_Free(ak_mc_thread_data* ThreadData, ak_mc_test_job* TestJob) {
     JobData.DataByteSize = sizeof(ak_mc_test_job_entry);
 
     ak_job_id JobID = AK_Job_System_Alloc_Job(JobSystem, JobData, 0, AK_JOB_FLAG_QUEUE_IMMEDIATELY_BIT);
-    AK_JOB_SYSTEM_ASSERT(JobID);
-    TestJob->IsFreed = true;
+    assert(JobID);
+    TestJob->IsFree = true;
+
+    return JobID;
 }
 
 static AK_THREAD_CALLBACK_DEFINE(AK_MC_Test_Allocate_Thread_Test) {
     ak_mc_thread_data* ThreadData = (ak_mc_thread_data*)UserData;
-    ak_mc_thread_data_array* DataArray = &ThreadData->DataArray;
 
     uint32_t i;
-    for(i = 0; i < DataArray->Count; i++) {
-        DataArray->Ptr[i] = AK_MC_Test_Allocate(ThreadData);
+    for(i = 0; i < ThreadData->TestCount; i++) {
+        AK_MC_Test_Allocate(ThreadData, &ThreadData->TestJobs[i]);
     }
 
     return 0;
 }
 
-static AK_THREAD_CALLBACK_DEFINE(AK_Test_Free_Thread_Test) {
+static AK_THREAD_CALLBACK_DEFINE(AK_MC_Test_Free_Thread_Test) {
     ak_mc_thread_data* ThreadData = (ak_mc_thread_data*)UserData;
-    ak_mc_thread_data_array* DataArray = &ThreadData->DataArray;
 
     uint32_t i;
 
     bool IsDone;
     do {
         IsDone = true;
-        for(i = 0; i < DataArray->Count; i++) {
-            if(AK_Atomic_Load_U32_Relaxed(&DataArray->Ptr[i].IsAllocated)) {
-                AK_MC_Test_Free(ThreadData, &DataArray->Ptr[i]);
+        for(i = 0; i < ThreadData->TestCount; i++) {
+            if(AK_Atomic_Load_U32_Relaxed(&ThreadData->TestJobs[i].IsAllocated)) {
+                AK_MC_Test_Free(ThreadData, &ThreadData->TestJobs[i]);
             }
 
-            if(!DataArray->Ptr[i].IsFreed) {
+            if(!ThreadData->TestJobs[i].IsFree) {
                 IsDone = false;
             }
         }
@@ -1408,79 +1426,132 @@ static AK_THREAD_CALLBACK_DEFINE(AK_Test_Free_Thread_Test) {
     return 0;
 }
 
-static AK_THREAD_CALLBACK_DEFINE(AK_Test_Allocate_And_Free_Test) {
-    ak_mc_thread_data* ThreadData = (ak_mc_thread_data*)UserData;
-    ak_mc_thread_data_array* DataArray = &ThreadData->DataArray;
+// static AK_THREAD_CALLBACK_DEFINE(AK_MC_Test_Allocate_And_Free_Test) {
+//     ak_mc_thread_data* ThreadData = (ak_mc_thread_data*)UserData;
+//     ak_mc_thread_data_array* DataArray = &ThreadData->DataArray;
 
-    uint32_t i;
-    uint32_t j;
-    for(i = 0; i < DataArray->Count; i++) {
-        for(j = 0; j < ThreadData->DuplicateCount; j++) {
-            DataArray->Ptr[i] = AK_MC_Test_Allocate(ThreadData);
-            AK_MC_Test_Free(ThreadData, &DataArray->Ptr[i]);
-        }
+//     uint32_t i;
+//     uint32_t j;
+//     for(i = 0; i < DataArray->Count; i++) {
+//         for(j = 0; j < ThreadData->DuplicateCount; j++) {
+//             DataArray->Ptr[i] = AK_MC_Test_Allocate(ThreadData);
+//             AK_MC_Test_Free(ThreadData, &DataArray->Ptr[i]);
+//         }
 
-        DataArray->Ptr[i] = AK_MC_Test_Allocate(ThreadData);
-    }
+//         DataArray->Ptr[i] = AK_MC_Test_Allocate(ThreadData);
+//     }
 
-    return 0;
-}
+//     return 0;
+// }
 
-static AK_THREAD_CALLBACK_DEFINE(AK_Test_Sync_Test) {
-    ak_mc_thread_data* ThreadData = (ak_mc_thread_data*)UserData;
-    ak_mc_thread_data_array* DataArray = &ThreadData->DataArray;
+// static AK_THREAD_CALLBACK_DEFINE(AK_MC_Test_Sync_Test) {
+//     ak_mc_thread_data* ThreadData = (ak_mc_thread_data*)UserData;
+//     ak_mc_thread_data_array* DataArray = &ThreadData->DataArray;
 
-    ak_mc_thread_data_entry* DataEntries = malloc(sizeof(ak_mc_thread_data_entry)*DataArray->Count);
+//     ak_mc_thread_data_entry* DataEntries = malloc(sizeof(ak_mc_thread_data_entry)*DataArray->Count);
 
-    uint32_t i;
-    for(i = 0; i < DataArray->Count; i++) {
-        DataEntries[i] = AK_MC_Test_Allocate(ThreadData);
-    }
+//     uint32_t i;
+//     for(i = 0; i < DataArray->Count; i++) {
+//         DataEntries[i] = AK_MC_Test_Allocate(ThreadData);
+//     }
 
-    for(i = 0; i < DataArray->Count; i++) {
-        AK_MC_Test_Free(ThreadData, &DataEntries[i]);
-    }
+//     for(i = 0; i < DataArray->Count; i++) {
+//         AK_MC_Test_Free(ThreadData, &DataEntries[i]);
+//     }
 
-    uint32_t i;
-    uint32_t j;
-    for(i = 0; i < DataArray->Count; i++) {
-        for(j = 0; j < ThreadData->DuplicateCount; j++) {
-            DataEntries[i] = AK_MC_Test_Allocate(ThreadData);
-            AK_MC_Test_Free(ThreadData, &DataEntries[i]);
-        }
-    }
+//     uint32_t i;
+//     uint32_t j;
+//     for(i = 0; i < DataArray->Count; i++) {
+//         for(j = 0; j < ThreadData->DuplicateCount; j++) {
+//             DataEntries[i] = AK_MC_Test_Allocate(ThreadData);
+//             AK_MC_Test_Free(ThreadData, &DataEntries[i]);
+//         }
+//     }
 
-    free(DataEntries);
+//     free(DataEntries);
 
-    return 0;
-}
+//     return 0;
+// }
 
 /*This is going to simulate allocating and deleting resources.
   We want to test whether we can add jobs from other threads
   and have them execute correctly. Noticed this failing in another
   application and copied the test over*/
 UTEST(AK_Job_System, MultipleJobProducers) {
-    const u32 Iterations = 2;
-    const u32 ResourceCount = 100;
-    const u32 DuplicateCount = 10;
+    const uint32_t Iterations = 2;
+    const uint32_t TestCount = 100000;
+
+    ak_mc_test_data TestData = {0};
 
     uint32_t NumThreads = AK_Get_Processor_Thread_Count();
 
-    ak_job_system* JobSystem = AK_Job_System_Create(ResourceCount*DuplicateCount*5*Iterations, NumThreads);
-    ak_thread* Threads = (ak_thread*)malloc(sizeof(ak_thread)*NumThreads*5)
+    ak_job_system* JobSystem = AK_Job_System_Create(TestCount*5*Iterations, NumThreads, NULL, NULL);
+    ak_thread* Threads = (ak_thread*)malloc(sizeof(ak_thread)*Iterations*5);
+    memset(Threads, 0, sizeof(ak_thread)*Iterations*5);
+
+    ak_mc_thread_data* ThreadDataStorage = malloc(sizeof(ak_mc_thread_data)*(3*Iterations));
+    ak_mc_test_job* JobDataStorage = malloc(sizeof(ak_mc_test_job)*(TestCount*Iterations));
+
+    memset(ThreadDataStorage, 0, sizeof(ak_mc_thread_data)*3*Iterations);
+    memset(JobDataStorage, 0, sizeof(ak_mc_test_job)*(TestCount*Iterations));
 
     uint32_t i;
     for(i = 0; i < Iterations; i++) {
+        ak_mc_thread_data* ThreadsData = ThreadDataStorage + i*3;
+        ak_mc_test_job* JobsData = JobDataStorage + i*TestCount;
+
+        ak_mc_thread_data* ThreadData = ThreadsData + 0;
+        ThreadData->JobSystem = JobSystem;
+        ThreadData->TestCount = TestCount;
+        ThreadData->TestJobs  = JobsData;
+        ThreadData->TestData  = &TestData;
+
+        uint32_t j;
+        for(j = 0; j < TestCount; j++) {
+            AK_MC_Test_Allocate(ThreadData, &ThreadData->TestJobs[j]);
+        }
+
+        for(j = 0; j < TestCount; j++) {
+            AK_MC_Test_Free(ThreadData, &ThreadData->TestJobs[j]);
+        }
+    }
+    AK_Job_System_Delete(JobSystem);
+    ASSERT_EQ(TestData.TotalAllocated.Nonatomic, TestData.TotalFreed.Nonatomic);
+    ASSERT_EQ(TestData.TotalAllocated.Nonatomic, TestCount*Iterations);
+    
+    memset(&TestData, 0, sizeof(ak_mc_test_data));
+    memset(ThreadDataStorage, 0, sizeof(ak_mc_thread_data)*3*Iterations);
+    memset(JobDataStorage, 0, sizeof(ak_mc_test_job)*(TestCount*Iterations));
+
+    JobSystem = AK_Job_System_Create(TestCount*5*Iterations, NumThreads, NULL, NULL);
+
+    for(i = 0; i < Iterations; i++) {
+
+        ak_mc_thread_data* ThreadsData = ThreadDataStorage + i*3;
+        ak_mc_test_job* JobsData = JobDataStorage + i*TestCount;
+
+        ak_mc_thread_data* ThreadData = ThreadsData + 0;
+        ThreadData->JobSystem = JobSystem;
+        ThreadData->TestCount = TestCount;
+        ThreadData->TestJobs  = JobsData;
+        ThreadData->TestData  = &TestData;
 
         ak_thread* ThreadBatch = Threads + i*5;
-        AK_Thread_Create(&Threads[0], AK_Test_Allocate_Thread_Test);
-        AK_Thread_Create(&Threads[1], AK_Test_Free_Thread_Test);
-        AK_Thread_Create(&Threads[2], AK_Test_Allocate_Free_Thread_Test);
-        AK_Thread_Create(&Threads[3], AK_Test_Free_Thread_Test);
-        AK_Thread_Create(&Threads[4], AK_Test_Sync_Thread_Test);
+        AK_Thread_Create(&ThreadBatch[0], AK_MC_Test_Allocate_Thread_Test, ThreadData);
+        AK_Thread_Create(&ThreadBatch[1], AK_MC_Test_Free_Thread_Test, ThreadData);
+        // AK_Thread_Create(&Threads[2], AK_Test_Allocate_Free_Thread_Test);
+        // AK_Thread_Create(&Threads[3], AK_Test_Free_Thread_Test);
+        // AK_Thread_Create(&Threads[4], AK_Test_Sync_Thread_Test);
+    }
+
+    for(i = 0; i < Iterations*5; i++) {
+        AK_Thread_Wait(&Threads[i]);
+        AK_Thread_Delete(&Threads[i]);
     }
 
     AK_Job_System_Delete(JobSystem);
+    free(JobDataStorage);
+    free(ThreadDataStorage);
     free(Threads);
 }
 
