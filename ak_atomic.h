@@ -2376,6 +2376,9 @@ static ak__job* AK_Job_Thread__Steal_Next_Job(ak_job_system* JobSystem, ak__job_
         if(Job) return Job;
     }
 
+    BestSize = 0;
+    BestQueue = NULL;
+
     for(Queue = AK_Atomic_Load_Ptr_Relaxed(&JobSystem->ThreadRunnerQueueTopPtr);
         Queue; Queue = Queue->Next) {
         if(Queue != JobQueue) {
@@ -2445,7 +2448,7 @@ static void AK_Job_System__Finish_Job(ak_job_system* JobSystem, ak__job* Job) {
     }
 }
 
-static void AK_Job_System__Process_Job(ak_job_system* JobSystem, ak__job_steal_queue* JobQueue, ak__job* Job, uint32_t Level) {    
+static void AK_Job_System__Process_Job(ak_job_system* JobSystem, ak__job_steal_queue* JobQueue, ak__job* Job) {    
     ak_job_id JobID = AK__Job_Make_ID(Job);
     ak_job_status JobStatus = AK_JOB_STATUS_COMPLETE;
     if(Job->JobCallback) {
@@ -2461,18 +2464,6 @@ static void AK_Job_System__Process_Job(ak_job_system* JobSystem, ak__job_steal_q
         } break;
 
         case AK_JOB_STATUS_REQUEUE: {
-            /*If we requeue, we need to steal some jobs first. Since each local
-              queue is technically a stack (push goes to the end, pop removes from the end)
-              requeues can process infinitely if every thread is in a state where
-              it is constantly pushing and poping (requeing and processing). Stealing
-              will allow other threads to start stealing from the front and execute jobs
-              that are potentially blocking other jobs*/
-            if(Level < 4) {
-                ak__job* StolenJob = AK_Job_Thread__Steal_Next_Job(JobSystem, JobQueue);
-                if(StolenJob) {
-                    AK_Job_System__Process_Job(JobSystem, JobQueue, StolenJob, Level+1);
-                }
-            }
             AK__Job_Queue_Add_Job(JobSystem, JobQueue, Job);
         } break;
     }
@@ -2493,7 +2484,7 @@ static ak__job* AK_Job_Thread_Runner__Get_Next_Job(ak_job_system* JobSystem, ak_
 static bool AK_Job_Thread_Runner__Process_Next_Job(ak_job_system* JobSystem, ak__job_steal_queue* JobQueue) {
     ak__job* Job = AK_Job_Thread_Runner__Get_Next_Job(JobSystem, JobQueue);
     if(Job) {
-        AK_Job_System__Process_Job(JobSystem, JobQueue, Job, 0);
+        AK_Job_System__Process_Job(JobSystem, JobQueue, Job);
         return true;
     }
     return false;
