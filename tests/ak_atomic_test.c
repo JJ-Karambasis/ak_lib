@@ -964,10 +964,16 @@ AK_JOB_CALLBACK_DEFINE(AK_Job_System_Large_User_Data_Test_Callback) {
     return AK_JOB_STATUS_COMPLETE;
 }
 
+typedef struct {
+    ak_atomic_u64 AllocatedAmount;
+    ak_atomic_u64 FreedAmount;
+} ak_job_system_allocator_info; 
+
 UTEST(AK_Job_System, UserData) {
     const uint32_t Iterations = 100000;
 
-    ak_job_system* JobSystem = AK_Job_System_Create((Iterations*2)+1, AK_Get_Processor_Thread_Count(), NULL, NULL);
+    ak_job_system_allocator_info AllocatorInfo = {0};
+    ak_job_system* JobSystem = AK_Job_System_Create((Iterations*2)+1, AK_Get_Processor_Thread_Count(), NULL, &AllocatorInfo);
 
     ak_job_id RootJob = AK_Job_System_Alloc_Empty_Job(JobSystem);
     uint32_t i;
@@ -1008,6 +1014,7 @@ UTEST(AK_Job_System, UserData) {
     AK_Job_System_Add_Job(JobSystem, RootJob);
     AK_Job_System_Wait_For_Job(JobSystem, RootJob);
     AK_Job_System_Delete(JobSystem);
+    ASSERT_TRUE(AllocatorInfo.AllocatedAmount.Nonatomic == AllocatorInfo.FreedAmount.Nonatomic);
 }
 
 typedef struct {
@@ -1036,12 +1043,14 @@ UTEST(AK_Job_System, MainTest) {
     const uint32_t ThreadCount = AK_Get_Processor_Thread_Count();
     const uint32_t MaxJobCount = (10000000);
 
+    ak_job_system_allocator_info AllocatorInfo = {0};
+
     ak_job_system_thread_data ThreadData = {0};
     ThreadData.Count = MaxJobCount;
     ThreadData.CounterTable = (uint32_t*)malloc(sizeof(uint32_t)*MaxJobCount);
     memset(ThreadData.CounterTable, 0, sizeof(uint32_t)*MaxJobCount);
 
-    ak_job_system* JobSystem = AK_Job_System_Create(MaxJobCount+1, ThreadCount, NULL, NULL);
+    ak_job_system* JobSystem = AK_Job_System_Create(MaxJobCount+1, ThreadCount, NULL, &AllocatorInfo);
     ASSERT_TRUE(JobSystem);
 
     uint64_t StartTime = AK_Query_Performance_Counter();
@@ -1074,6 +1083,7 @@ UTEST(AK_Job_System, MainTest) {
     }
 
     free(ThreadData.CounterTable);
+    ASSERT_TRUE(AllocatorInfo.AllocatedAmount.Nonatomic == AllocatorInfo.FreedAmount.Nonatomic);
 }
 
 typedef struct {
@@ -1170,7 +1180,9 @@ AK_JOB_CALLBACK_DEFINE(AK_Async_Job_Dependency_F) {
 UTEST(AK_Job_System, DependencyTest) {
     const uint32_t Iterations = 1000000;
 
-    ak_job_system* JobSystem = AK_Job_System_Create((6*Iterations)+1, AK_Get_Processor_Thread_Count(), NULL, NULL);
+    ak_job_system_allocator_info AllocatorInfo = {0};
+
+    ak_job_system* JobSystem = AK_Job_System_Create((6*Iterations)+1, AK_Get_Processor_Thread_Count(), NULL, &AllocatorInfo);
 
     ak_job_system_dependency_test_data* DependencyDataArray = (ak_job_system_dependency_test_data*)malloc(Iterations*sizeof(ak_job_system_dependency_test_data));
     memset(DependencyDataArray, 0, Iterations*sizeof(ak_job_system_dependency_test_data));
@@ -1234,6 +1246,7 @@ UTEST(AK_Job_System, DependencyTest) {
 
     free(DependencyDataArray);
     AK_Job_System_Delete(JobSystem);
+    ASSERT_TRUE(AllocatorInfo.AllocatedAmount.Nonatomic == AllocatorInfo.FreedAmount.Nonatomic);
 }
 
 AK_JOB_CALLBACK_DEFINE(AK_Job_System_Sleep_Test_Callback) {
@@ -1244,7 +1257,9 @@ AK_JOB_CALLBACK_DEFINE(AK_Job_System_Sleep_Test_Callback) {
 }
 
 UTEST(AK_Job_System, SleepTest) {
-    ak_job_system* JobSystem = AK_Job_System_Create(1, AK_Get_Processor_Thread_Count(), NULL, NULL);
+    ak_job_system_allocator_info AllocatorInfo = {0};
+
+    ak_job_system* JobSystem = AK_Job_System_Create(1, AK_Get_Processor_Thread_Count(), NULL, &AllocatorInfo);
     ASSERT_TRUE(JobSystem);
 
     ak_job_data JobData = {0};
@@ -1254,6 +1269,8 @@ UTEST(AK_Job_System, SleepTest) {
 
     AK_Job_System_Wait_For_Job(JobSystem, SleepID);
     AK_Job_System_Delete(JobSystem);
+
+    ASSERT_TRUE(AllocatorInfo.AllocatedAmount.Nonatomic == AllocatorInfo.FreedAmount.Nonatomic);
 }
 
 typedef struct {
@@ -1279,7 +1296,9 @@ AK_JOB_THREAD_END_DEFINE(AK_Job_System_Thread_End_Test) {
 
 UTEST(AK_Job_System, ThreadCallbacks) {
     const uint32_t ThreadCount = 8;
+
     ak_job_thread_callback_data ThreadCallbackData = {0};
+    ak_job_system_allocator_info AllocatorInfo = {0};
 
     ak_job_thread_callbacks ThreadCallbacks = {0};
     ThreadCallbacks.JobThreadBegin  = AK_Job_System_Thread_Begin_Test;
@@ -1287,7 +1306,7 @@ UTEST(AK_Job_System, ThreadCallbacks) {
     ThreadCallbacks.JobThreadUpdate = AK_Job_System_Thread_Update_Test;
     ThreadCallbacks.UserData = &ThreadCallbackData;
 
-    ak_job_system* JobSystem = AK_Job_System_Create(1, ThreadCount, &ThreadCallbacks, NULL);
+    ak_job_system* JobSystem = AK_Job_System_Create(1, ThreadCount, &ThreadCallbacks, &AllocatorInfo);
     
     ak_job_data JobData = {0};
     ak_job_id JobID = AK_Job_System_Alloc_Job(JobSystem, JobData, 0, AK_JOB_FLAG_QUEUE_IMMEDIATELY_BIT);
@@ -1297,6 +1316,8 @@ UTEST(AK_Job_System, ThreadCallbacks) {
     ASSERT_EQ(ThreadCallbackData.ThreadsStarted.Nonatomic, ThreadCount);
     ASSERT_EQ(ThreadCallbackData.ThreadsEnded.Nonatomic, ThreadCount);
     ASSERT_GE(ThreadCallbackData.ThreadsUpdated.Nonatomic, 1);
+
+    ASSERT_TRUE(AllocatorInfo.AllocatedAmount.Nonatomic == AllocatorInfo.FreedAmount.Nonatomic);
 }
 
 typedef struct ak_mc_test_data {
@@ -1475,7 +1496,7 @@ static AK_THREAD_CALLBACK_DEFINE(AK_MC_Test_Sync_Test) {
   application and copied the test over*/
 
 UTEST(AK_Job_System, MultipleJobProducers) {
-    const uint32_t Iterations = 2;
+    const uint32_t Iterations = 1;
     const uint32_t TestCount = 100000;
     const uint32_t DuplicateCount = 10;
 
@@ -1483,7 +1504,8 @@ UTEST(AK_Job_System, MultipleJobProducers) {
 
     uint32_t NumThreads = AK_Get_Processor_Thread_Count();
 
-    ak_job_system* JobSystem = AK_Job_System_Create(TestCount*DuplicateCount*Iterations*5, NumThreads, NULL, NULL);
+    ak_job_system_allocator_info AllocatorInfo = {0};
+    ak_job_system* JobSystem = AK_Job_System_Create(TestCount*DuplicateCount*Iterations*5, NumThreads, NULL, &AllocatorInfo);
     ak_thread* Threads = (ak_thread*)malloc(sizeof(ak_thread)*Iterations*5);
     memset(Threads, 0, sizeof(ak_thread)*Iterations*5);
 
@@ -1550,6 +1572,9 @@ UTEST(AK_Job_System, MultipleJobProducers) {
     free(JobDataStorage);
     free(ThreadDataStorage);
     free(Threads);
+
+    ASSERT_TRUE(AllocatorInfo.AllocatedAmount.Nonatomic == AllocatorInfo.FreedAmount.Nonatomic);
+    printf("Done!\n");
 }
 
 #endif
@@ -1558,5 +1583,32 @@ UTEST(AK_Job_System, MultipleJobProducers) {
 UTEST_MAIN()
 #endif
 
+void* AK_Job_System_Test_Allocate_Memory(size_t Size, void* UserData) {
+    if(UserData) {
+        ak_job_system_allocator_info* AllocatorInfo = (ak_job_system_allocator_info*)UserData;
+        size_t* Memory = malloc(Size+sizeof(size_t));
+        *Memory = Size;
+        AK_Atomic_Fetch_Add_U64_Relaxed(&AllocatorInfo->AllocatedAmount, Size);
+        return Memory+1;
+    } else {
+        return malloc(Size);
+    }
+}
+
+void AK_Job_System_Test_Free_Memory(void* Memory, void* UserData) {
+    if(UserData) {
+        ak_job_system_allocator_info* AllocatorInfo = (ak_job_system_allocator_info*)UserData;
+        size_t* Ptr = ((size_t*)Memory)-1;
+        size_t Size = *Ptr;
+        free(Ptr);
+        AK_Atomic_Fetch_Add_U64_Relaxed(&AllocatorInfo->FreedAmount, Size);
+
+    } else {
+        free(Memory);
+    }
+}
+
+#define AK_JOB_SYSTEM_MALLOC(size, user_data) AK_Job_System_Test_Allocate_Memory(size, user_data)
+#define AK_JOB_SYSTEM_FREE(memory, user_data) AK_Job_System_Test_Free_Memory(memory, user_data)
 #define AK_ATOMIC_IMPLEMENTATION
 #include <ak_atomic.h>

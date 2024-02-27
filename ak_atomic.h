@@ -2095,6 +2095,12 @@ AKATOMICDEF void AK_Async_Slot_Map64_Free(ak_async_slot_map64* SlotMap) {
 #define AK_JOB_SYSTEM_ASSERT(cond) assert(cond)
 #endif
 
+#if AK_ATOMIC_PTR_SIZE == 8
+#define AK_JOB_SYSTEM__ALIGNMENT 16
+#else
+#define AK_JOB_SYSTEM__ALIGNMENT 16
+#endif
+
 typedef struct ak__job ak__job;
 
 typedef struct ak_job_data__internal {
@@ -2123,22 +2129,21 @@ struct ak__job {
 AK_ATOMIC__COMPILE_TIME_ASSERT(sizeof(ak__job) == 64);
 
 typedef struct ak__job_thread ak__job_thread;
-typedef struct ak__job_queue  ak__job_queue;
+typedef struct ak__job_steal_queue  ak__job_steal_queue;
 
 struct ak__job_thread {
-    ak_thread     Thread;
-    uint64_t      ThreadID;
-    ak_atomic_u32 IsRunning;
+    ak_job_system*  JobSystem;
+    ak_thread       Thread;
+    ak__job_thread* Next;
 };
 
-typedef struct ak__job_queue {
-    ak_atomic_u32  BottomIndex;
-    ak_atomic_u32  TopIndex;
-    ak__job**      Queue;
-    ak_job_system* JobSystem;
-    ak__job_thread JobThread;
-    ak__job_queue* Next;
-} ak__job_queue;
+struct ak__job_steal_queue {
+    ak_atomic_u32        BottomIndex;
+    ak_atomic_u32        TopIndex;
+    ak__job**            Queue;
+    uint64_t             ThreadID;
+    ak__job_steal_queue* Next;
+};
 
 struct ak_job_system {
     /*System information*/
@@ -2153,62 +2158,97 @@ struct ak_job_system {
 
     /*Threads and queues*/
     ak_job_thread_callbacks      ThreadCallbacks;
-    ak_atomic_ptr                TopQueuePtr; /*Link list of ak__job_queues queues to search*/    
-    uint32_t                     ThreadCount;
+    ak_atomic_ptr                NonThreadRunnerQueueTopPtr; /*Link list of ak__job_steal_queue queues that are not thread runners*/    
+    ak_atomic_ptr                ThreadRunnerQueueTopPtr;  /*Link list of ak__job_steal_queue queues that are thread runners*/
+    ak_atomic_ptr                TopThreadPtr; /*Link list of ak__job_thread threads to manage*/
+    ak_atomic_u32                ThreadCount;
+    ak_atomic_u32                IsRunning;
 };
 
-ak__job_queue* AK_Job_System__Create_Queue(ak_job_system* JobSystem) {
-    size_t AllocationSize = sizeof(ak__job_queue)+(sizeof(ak__job*)*JobSystem->MaxJobCount);
-    ak__job_queue* JobQueue = (ak__job_queue*)AK_JOB_SYSTEM_MALLOC(AllocationSize, JobSystem->MallocUserData);
+static void* AK_Job_System__Malloc(size_t Size, void* MallocUserData) {
+    size_t Offset = AK_JOB_SYSTEM__ALIGNMENT - 1 + sizeof(void*);
+    void* P1 = AK_JOB_SYSTEM_MALLOC(Size+Offset, MallocUserData);
+    if(!P1) return NULL;
+
+    void** P2 = (void**)(((size_t)(P1) + Offset) & ~(AK_JOB_SYSTEM__ALIGNMENT - 1));
+    P2[-1] = P1;
+         
+    return P2;
+}
+
+static void AK_Job_System__Free(void* Memory, void* MallocUserData) {
+    if(Memory) {
+        void** P2 = (void**)Memory;
+        AK_JOB_SYSTEM_FREE(P2[-1], MallocUserData);
+    }
+}
+
+ak__job_steal_queue* AK_Job_System__Create_Steal_Queue(ak_job_system* JobSystem, ak_atomic_ptr* TopQueuePtr) {
+    size_t AllocationSize = sizeof(ak__job_steal_queue)+(sizeof(ak__job*)*JobSystem->MaxJobCount);
+    ak__job_steal_queue* JobQueue = (ak__job_steal_queue*)AK_Job_System__Malloc(AllocationSize, JobSystem->MallocUserData);
     AK_JOB_SYSTEM_ASSERT(JobQueue);
     if(!JobQueue) return NULL;
     AK_JOB_SYSTEM_MEMSET(JobQueue, 0, AllocationSize);
     JobQueue->Queue = (ak__job**)(JobQueue+1);
-    JobQueue->JobSystem = JobSystem;
-    JobQueue->JobThread.ThreadID = (uint64_t)-1;
 
     /*Append to link list atomically*/
     for(;;) {
-        ak__job_queue* OldTop = AK_Atomic_Load_Ptr_Relaxed(&JobSystem->TopQueuePtr);
+        ak__job_steal_queue* OldTop = AK_Atomic_Load_Ptr_Relaxed(TopQueuePtr);
         JobQueue->Next = OldTop;
-        if(AK_Atomic_Compare_Exchange_Bool_Ptr_Explicit(&JobSystem->TopQueuePtr, OldTop, JobQueue, AK_ATOMIC_MEMORY_ORDER_RELEASE, AK_ATOMIC_MEMORY_ORDER_RELAXED)) {
+        if(AK_Atomic_Compare_Exchange_Bool_Ptr_Explicit(TopQueuePtr, OldTop, JobQueue, AK_ATOMIC_MEMORY_ORDER_RELEASE, AK_ATOMIC_MEMORY_ORDER_RELAXED)) {
             return JobQueue;
         }
     }
 }
 
-static AK_THREAD_CALLBACK_DEFINE(AK_Job_System__Thread_Callback);
-bool AK_Job_System__Create_Thread(ak_job_system* JobSystem, ak__job_queue* JobQueue) {
-    ak__job_thread* Thread = &JobQueue->JobThread;
-    JobQueue->JobThread.IsRunning.Nonatomic = true;
-    bool Result = AK_Thread_Create(&Thread->Thread, AK_Job_System__Thread_Callback, JobQueue);
-    AK_JOB_SYSTEM_ASSERT(Result);
-    if(Result) {
-        JobQueue->JobThread.ThreadID = AK_Thread_Get_ID(&Thread->Thread);
+ak__job_thread* AK_Job_System__Create_Thread(ak_job_system* JobSystem, ak_thread_callback_func* Callback) {
+    /*todo: Hate to allocate for small amounts of data. We should
+      probably convert to a mutex lock pool structure or 
+      something to make this nicer. But it honestly probably 
+      doesn't matter n 99.9% of cases */
+    size_t AllocationSize = sizeof(ak__job_thread);
+    ak__job_thread* Thread = (ak__job_thread*)AK_Job_System__Malloc(AllocationSize, JobSystem->MallocUserData);
+    if(!Thread) return NULL;
+    AK_JOB_SYSTEM_MEMSET(Thread, 0, AllocationSize);
+    Thread->JobSystem = JobSystem;
+    if(!AK_Thread_Create(&Thread->Thread, Callback, Thread)) {
+        AK_Job_System__Free(Thread, JobSystem->MallocUserData);
+        return NULL;   
     }
-    JobSystem->ThreadCount++;
-    return Result;
+    AK_Atomic_Increment_U32_Relaxed(&JobSystem->ThreadCount);
+
+    for(;;) {
+        ak__job_thread* OldTop = AK_Atomic_Load_Ptr_Relaxed(&JobSystem->TopThreadPtr);
+        Thread->Next = OldTop;
+        if(AK_Atomic_Compare_Exchange_Bool_Ptr_Explicit(&JobSystem->TopThreadPtr, OldTop, Thread, AK_ATOMIC_MEMORY_ORDER_RELEASE, AK_ATOMIC_MEMORY_ORDER_RELAXED)) {
+            return Thread;
+        }
+    }
 }
 
-static ak__job_queue* AK_Job_System__Get_Local_Queue(ak_job_system* JobSystem) {
-    ak__job_queue* JobQueue = (ak__job_queue*)AK_TLS_Get(&JobSystem->TLS);
+static AK_THREAD_CALLBACK_DEFINE(AK_Job_System__Thread_Runner_Callback);
+static ak__job_steal_queue* AK_Job_System__Get_Local_Steal_Queue(ak_job_system* JobSystem) {
+    ak__job_steal_queue* JobQueue = (ak__job_steal_queue*)AK_TLS_Get(&JobSystem->TLS);
     if(!JobQueue) {
         uint64_t ThreadID = AK_Thread_Get_Current_ID();
 
         /*If we do not find a queue in our TLS we linear search for it by thread id*/
-        for(ak__job_queue* Queue = AK_Atomic_Load_Ptr_Relaxed(&JobSystem->TopQueuePtr);
+
+        ak__job_steal_queue* Queue;
+        for(Queue = AK_Atomic_Load_Ptr_Relaxed(&JobSystem->NonThreadRunnerQueueTopPtr);
             Queue; Queue = Queue->Next) {
-            if(Queue->JobThread.ThreadID == ThreadID) {
+            if(Queue->ThreadID == ThreadID) {
                 JobQueue = Queue;
                 break;
             }
         }
 
-        /*If queue still hasn't been found we create a queue*/
-        if(!JobQueue) {
-            JobQueue = AK_Job_System__Create_Queue(JobSystem);
-            AK_JOB_SYSTEM_ASSERT(JobQueue);
-            JobQueue->JobThread.ThreadID = ThreadID;
+        for(Queue = AK_Atomic_Load_Ptr_Relaxed(&JobSystem->ThreadRunnerQueueTopPtr);
+            Queue; Queue = Queue->Next) {
+            if(Queue->ThreadID == ThreadID) {
+                JobQueue = Queue;
+                break;
+            }
         }
 
         if(JobQueue) AK_TLS_Set(&JobSystem->TLS, JobQueue);
@@ -2216,9 +2256,22 @@ static ak__job_queue* AK_Job_System__Get_Local_Queue(ak_job_system* JobSystem) {
     return JobQueue;
 }
 
-static ak__job* AK_Job_System__Steal_Job(ak_job_system* JobSystem, ak__job_queue* JobQueue) {
+ak__job_steal_queue* AK_Job_System__Get_Or_Create_Local_Steal_Queue(ak_job_system* JobSystem) {
+    ak__job_steal_queue* JobQueue = AK_Job_System__Get_Local_Steal_Queue(JobSystem);
+    if(!JobQueue) {
+        JobQueue = AK_Job_System__Create_Steal_Queue(JobSystem, &JobSystem->NonThreadRunnerQueueTopPtr);
+        JobQueue->ThreadID = AK_Thread_Get_Current_ID();
+        AK_TLS_Set(&JobSystem->TLS, JobQueue);
+    }
+    return JobQueue;
+}
+
+
+static ak__job* AK_Job_System__Steal_Job(ak_job_system* JobSystem, ak__job_steal_queue* JobQueue) {
     int32_t Top = (int32_t)AK_Atomic_Load_U32(&JobQueue->TopIndex, AK_ATOMIC_MEMORY_ORDER_ACQUIRE);
     /*Bottom needs to be read after top so an acquire barrier is sufficient (LoadLoad situation)*/
+    AK_Atomic_Thread_Fence_Seq_Cst();
+    AK_Atomic_Compiler_Fence_Seq_Cst();
     int32_t Bottom = (int32_t)AK_Atomic_Load_U32(&JobQueue->BottomIndex, AK_ATOMIC_MEMORY_ORDER_ACQUIRE);
 
     ak__job* Result = NULL;
@@ -2231,7 +2284,7 @@ static ak__job* AK_Job_System__Steal_Job(ak_job_system* JobSystem, ak__job_queue
     return Result;
 }
 
-static ak__job* AK_Job_System__Pop_Job(ak_job_system* JobSystem, ak__job_queue* JobQueue) {
+static ak__job* AK_Job_System__Pop_Job(ak_job_system* JobSystem, ak__job_steal_queue* JobQueue) {
     int32_t Bottom = ((int32_t)AK_Atomic_Load_U32_Relaxed(&JobQueue->BottomIndex))-1;
 
     AK_Atomic_Store_U32_Relaxed(&JobQueue->BottomIndex, Bottom);
@@ -2247,7 +2300,6 @@ static ak__job* AK_Job_System__Pop_Job(ak_job_system* JobSystem, ak__job_queue* 
         if(Top == Bottom) {
             if(!AK_Atomic_Compare_Exchange_Bool_U32_Explicit(&JobQueue->TopIndex, Top, Top+1, AK_ATOMIC_MEMORY_ORDER_ACQ_REL, AK_ATOMIC_MEMORY_ORDER_RELAXED)) {
                 Result = NULL;
-            } else {
             }
             AK_Atomic_Store_U32_Relaxed(&JobQueue->BottomIndex, Bottom+1);
         }
@@ -2257,26 +2309,42 @@ static ak__job* AK_Job_System__Pop_Job(ak_job_system* JobSystem, ak__job_queue* 
     return Result;
 }
 
-static void AK_Job_System__Push_Job(ak_job_system* JobSystem, ak__job_queue* JobQueue, ak__job* Job) {
+static void AK_Job_System__Push_Job(ak_job_system* JobSystem, ak__job_steal_queue* JobQueue, ak__job* Job) {
     int32_t Bottom = (int32_t)AK_Atomic_Load_U32_Relaxed(&JobQueue->BottomIndex);
     JobQueue->Queue[Bottom % JobSystem->MaxJobCount] = Job;
+    AK_Atomic_Thread_Fence_Seq_Cst();
+    AK_Atomic_Compiler_Fence_Seq_Cst();
     AK_Atomic_Store_U32(&JobQueue->BottomIndex, Bottom+1, AK_ATOMIC_MEMORY_ORDER_RELEASE);
 }
 
-static size_t AK_Job_System__Get_Queue_Size(ak__job_queue* JobQueue) {
+static size_t AK_Job_System__Get_Steal_Queue_Size(ak__job_steal_queue* JobQueue) {
     int32_t Bottom = (int32_t)AK_Atomic_Load_U32_Relaxed(&JobQueue->BottomIndex); 
     int32_t Top = (int32_t)AK_Atomic_Load_U32_Relaxed(&JobQueue->TopIndex); 
     return (size_t)(Bottom >= Top ? Bottom-Top : 0);
 }
 
-static ak__job_queue* AK_Job_System__Get_Largest_Job_Queue(ak_job_system* JobSystem, ak__job_queue* CurrentQueue) {
+static ak__job_steal_queue* AK_Job_System__Get_Largest_Steal_Queue(ak_job_system* JobSystem, ak__job_steal_queue* CurrentQueue) {
     size_t BestSize = 0;
-    ak__job_queue* BestQueue = NULL;
+    ak__job_steal_queue* BestQueue = NULL;
 
-    for(ak__job_queue* Queue = AK_Atomic_Load_Ptr_Relaxed(&JobSystem->TopQueuePtr);
+    ak__job_steal_queue* Queue;
+    for(Queue = AK_Atomic_Load_Ptr_Relaxed(&JobSystem->NonThreadRunnerQueueTopPtr);
         Queue; Queue = Queue->Next) {
         if(Queue != CurrentQueue) {
-            size_t QueueSize = AK_Job_System__Get_Queue_Size(Queue); 
+            size_t QueueSize = AK_Job_System__Get_Steal_Queue_Size(Queue); 
+            if(QueueSize > BestSize) {
+                BestSize = QueueSize;
+                BestQueue = Queue;
+            }
+        }
+    }
+
+    if(BestQueue) return BestQueue;
+
+    for(Queue = AK_Atomic_Load_Ptr_Relaxed(&JobSystem->ThreadRunnerQueueTopPtr);
+        Queue; Queue = Queue->Next) {
+        if(Queue != CurrentQueue) {
+            size_t QueueSize = AK_Job_System__Get_Steal_Queue_Size(Queue); 
             if(QueueSize > BestSize) {
                 BestSize = QueueSize;
                 BestQueue = Queue;
@@ -2287,21 +2355,49 @@ static ak__job_queue* AK_Job_System__Get_Largest_Job_Queue(ak_job_system* JobSys
     return BestQueue;
 }
 
-static void AK__Job_Queue_Add_Job(ak_job_system* JobSystem, ak__job_queue* JobQueue, ak__job* Job) {
-    AK_Job_System__Push_Job(JobSystem, JobQueue, Job);
-    AK_LW_Semaphore_Increment(&JobSystem->JobSemaphore);
-}
+static ak__job* AK_Job_Thread__Steal_Next_Job(ak_job_system* JobSystem, ak__job_steal_queue* JobQueue) {
+    size_t BestSize = 0;
+    ak__job_steal_queue* BestQueue = NULL;
 
-static ak__job* AK_Job_System__Get_Next_Job(ak_job_system* JobSystem, ak__job_queue* JobQueue) {
-    ak__job* Job = AK_Job_System__Pop_Job(JobSystem, JobQueue);
-
-    if(!Job) {
-        ak__job_queue* StolenJobQueue = AK_Job_System__Get_Largest_Job_Queue(JobSystem, JobQueue);
-        if(StolenJobQueue) {
-            Job = AK_Job_System__Steal_Job(JobSystem, StolenJobQueue);
+    ak__job_steal_queue* Queue;
+    for(Queue = AK_Atomic_Load_Ptr_Relaxed(&JobSystem->NonThreadRunnerQueueTopPtr);
+        Queue; Queue = Queue->Next) {
+        if(Queue != JobQueue) {
+            size_t QueueSize = AK_Job_System__Get_Steal_Queue_Size(Queue); 
+            if(QueueSize > BestSize) {
+                BestSize = QueueSize;
+                BestQueue = Queue;
+            }
         }
     }
-    return Job;   
+
+    if(BestQueue) {
+        ak__job* Job = AK_Job_System__Steal_Job(JobSystem, BestQueue);
+        if(Job) return Job;
+    }
+
+    for(Queue = AK_Atomic_Load_Ptr_Relaxed(&JobSystem->ThreadRunnerQueueTopPtr);
+        Queue; Queue = Queue->Next) {
+        if(Queue != JobQueue) {
+            size_t QueueSize = AK_Job_System__Get_Steal_Queue_Size(Queue); 
+            if(QueueSize > BestSize) {
+                BestSize = QueueSize;
+                BestQueue = Queue;
+            }
+        }
+    }
+
+    if(BestQueue) {
+        ak__job* Job = AK_Job_System__Steal_Job(JobSystem, BestQueue);
+        if(Job) return Job;
+    }
+
+    return NULL;
+}
+
+static void AK__Job_Queue_Add_Job(ak_job_system* JobSystem, ak__job_steal_queue* JobQueue, ak__job* Job) {
+    AK_Job_System__Push_Job(JobSystem, JobQueue, Job);
+    AK_LW_Semaphore_Increment(&JobSystem->JobSemaphore);
 }
 
 static ak_job_id AK__Job_Make_ID(ak__job* Job) {
@@ -2315,7 +2411,7 @@ static void AK_Job_System__Allocate_Data(ak__job* Job, void* Bytes, size_t ByteS
         Data = &Job->UserData;
         Job->JobInfoFlags &= ~AK__JOB_INFO_FLAG_HEAP_ALLOCATED_BIT;
     } else {
-        void* SlowData = AK_JOB_SYSTEM_MALLOC(ByteSize, AllocUserData);
+        void* SlowData = AK_Job_System__Malloc(ByteSize, AllocUserData);
         AK_JOB_SYSTEM_ASSERT(SlowData);
 
         /*Copy pointer address to user data*/
@@ -2331,7 +2427,8 @@ static void AK_Job_System__Allocate_Data(ak__job* Job, void* Bytes, size_t ByteS
 static void AK_Job_System__Free_Data(ak__job* Job, void* AllocUserData) {
     if(Job->JobInfoFlags & AK__JOB_INFO_FLAG_HEAP_ALLOCATED_BIT) {
         void* Ptr = AK_Job_System__Get_User_Data_Heap(Job->UserData);
-        AK_JOB_SYSTEM_FREE(Ptr, AllocUserData);
+        AK_Job_System__Free(Ptr, AllocUserData);
+        Job->JobInfoFlags &= ~AK__JOB_INFO_FLAG_HEAP_ALLOCATED_BIT;
     }
 }
 
@@ -2348,36 +2445,66 @@ static void AK_Job_System__Finish_Job(ak_job_system* JobSystem, ak__job* Job) {
     }
 }
 
-static bool AK_Job_System__Process_Next_Job(ak_job_system* JobSystem, ak__job_queue* JobQueue) {
-    ak__job* Job = AK_Job_System__Get_Next_Job(JobSystem, JobQueue);
-    if(Job) {
-        ak_job_id JobID = AK__Job_Make_ID(Job);
-        ak_job_status JobStatus = AK_JOB_STATUS_COMPLETE;
-        if(Job->JobCallback) {
-            void* UserData = 
-                ((Job->JobInfoFlags & AK__JOB_INFO_FLAG_HEAP_ALLOCATED_BIT) ? 
-                  AK_Job_System__Get_User_Data_Heap(Job->UserData) : 
-                  (void*)Job->UserData);
-            JobStatus = Job->JobCallback(JobSystem, JobID, UserData);
-        }
-        switch(JobStatus) {
-            case AK_JOB_STATUS_COMPLETE: {
-                AK_Job_System__Finish_Job(JobSystem, Job);
-            } break;
+static void AK_Job_System__Process_Job(ak_job_system* JobSystem, ak__job_steal_queue* JobQueue, ak__job* Job, uint32_t Level) {    
+    ak_job_id JobID = AK__Job_Make_ID(Job);
+    ak_job_status JobStatus = AK_JOB_STATUS_COMPLETE;
+    if(Job->JobCallback) {
+        void* UserData = 
+            ((Job->JobInfoFlags & AK__JOB_INFO_FLAG_HEAP_ALLOCATED_BIT) ? 
+                AK_Job_System__Get_User_Data_Heap(Job->UserData) : 
+                (void*)Job->UserData);
+        JobStatus = Job->JobCallback(JobSystem, JobID, UserData);
+    }
+    switch(JobStatus) {
+        case AK_JOB_STATUS_COMPLETE: {
+            AK_Job_System__Finish_Job(JobSystem, Job);
+        } break;
 
-            case AK_JOB_STATUS_REQUEUE: {
-                AK__Job_Queue_Add_Job(JobSystem, JobQueue, Job);
-            } break;
+        case AK_JOB_STATUS_REQUEUE: {
+            /*If we requeue, we need to steal some jobs first. Since each local
+              queue is technically a stack (push goes to the end, pop removes from the end)
+              requeues can process infinitely if every thread is in a state where
+              it is constantly pushing and poping (requeing and processing). Stealing
+              will allow other threads to start stealing from the front and execute jobs
+              that are potentially blocking other jobs*/
+            if(Level < 4) {
+                ak__job* StolenJob = AK_Job_Thread__Steal_Next_Job(JobSystem, JobQueue);
+                if(StolenJob) {
+                    AK_Job_System__Process_Job(JobSystem, JobQueue, StolenJob, Level+1);
+                }
+            }
+            AK__Job_Queue_Add_Job(JobSystem, JobQueue, Job);
+        } break;
+    }
+}
+
+
+static ak__job* AK_Job_Thread_Runner__Get_Next_Job(ak_job_system* JobSystem, ak__job_steal_queue* JobQueue) {
+    ak__job* Job = AK_Job_System__Pop_Job(JobSystem, JobQueue);
+    if(!Job) {
+        ak__job_steal_queue* StolenJobQueue = AK_Job_System__Get_Largest_Steal_Queue(JobSystem, JobQueue);
+        if(StolenJobQueue) {
+            Job = AK_Job_System__Steal_Job(JobSystem, StolenJobQueue);
         }
+    }
+    return Job;   
+}
+
+static bool AK_Job_Thread_Runner__Process_Next_Job(ak_job_system* JobSystem, ak__job_steal_queue* JobQueue) {
+    ak__job* Job = AK_Job_Thread_Runner__Get_Next_Job(JobSystem, JobQueue);
+    if(Job) {
+        AK_Job_System__Process_Job(JobSystem, JobQueue, Job, 0);
         return true;
     }
     return false;
 }
 
-static void AK_Job_Queue__Thread_Run(ak__job_queue* JobQueue) {
-    ak_job_system* JobSystem = JobQueue->JobSystem;
+static void AK_Job_Thread_Runner__Run(ak__job_thread* JobThread) {
+    ak_job_system* JobSystem = JobThread->JobSystem;
     ak_job_thread_callbacks* ThreadCallbacks = &JobSystem->ThreadCallbacks;
-    ak__job_thread* JobThread = &JobQueue->JobThread;
+    ak__job_steal_queue* JobQueue = AK_Job_System__Create_Steal_Queue(JobSystem, &JobSystem->ThreadRunnerQueueTopPtr);
+    JobQueue->ThreadID = AK_Thread_Get_Current_ID();
+    AK_TLS_Set(&JobSystem->TLS, JobQueue);
 
     if(ThreadCallbacks->JobThreadBegin)
         ThreadCallbacks->JobThreadBegin(JobSystem, &JobThread->Thread, ThreadCallbacks->UserData);
@@ -2385,8 +2512,8 @@ static void AK_Job_Queue__Thread_Run(ak__job_queue* JobQueue) {
     if(ThreadCallbacks->JobThreadUpdate)
             ThreadCallbacks->JobThreadUpdate(JobSystem, &JobThread->Thread, ThreadCallbacks->UserData);
 
-    while(AK_Atomic_Load_U32_Relaxed(&JobThread->IsRunning)) {
-        if(!AK_Job_System__Process_Next_Job(JobSystem, JobQueue)) {
+    while(AK_Atomic_Load_U32_Relaxed(&JobSystem->IsRunning)) {
+        if(!AK_Job_Thread_Runner__Process_Next_Job(JobSystem, JobQueue)) {
             AK_LW_Semaphore_Decrement(&JobSystem->JobSemaphore);
         }
 
@@ -2394,11 +2521,20 @@ static void AK_Job_Queue__Thread_Run(ak__job_queue* JobQueue) {
             ThreadCallbacks->JobThreadUpdate(JobSystem, &JobThread->Thread, ThreadCallbacks->UserData);
     }
 
-    //Cleanup remaining jobs
-    while(AK_Job_System__Process_Next_Job(JobSystem, JobQueue));
+    /*Cleanup remaining jobs*/
+    while(AK_Job_Thread_Runner__Process_Next_Job(JobSystem, JobQueue)) {
+        if(ThreadCallbacks->JobThreadUpdate)
+            ThreadCallbacks->JobThreadUpdate(JobSystem, &JobThread->Thread, ThreadCallbacks->UserData);
+    }
 
     if(ThreadCallbacks->JobThreadEnd)
         ThreadCallbacks->JobThreadEnd(JobSystem, &JobThread->Thread, ThreadCallbacks->UserData);
+}
+
+static AK_THREAD_CALLBACK_DEFINE(AK_Job_System__Thread_Runner_Callback) {
+    ak__job_thread* JobThread = (ak__job_thread*)UserData;
+    AK_Job_Thread_Runner__Run(JobThread);
+    return 0;
 }
 
 static ak__job* AK_Job_System__Get_Job(ak_job_system* JobSystem, ak_job_id JobID) {
@@ -2412,12 +2548,6 @@ static ak__job* AK_Job_System__Get_Job(ak_job_system* JobSystem, ak_job_id JobID
     return NULL;
 }
 
-static AK_THREAD_CALLBACK_DEFINE(AK_Job_System__Thread_Callback) {
-    ak__job_queue* JobQueue = (ak__job_queue*)UserData;
-    AK_Job_Queue__Thread_Run(JobQueue);
-    return 0;
-}
-
 AKATOMICDEF ak_job_system* AK_Job_System_Create(uint32_t MaxJobCount, uint32_t ThreadCount, const ak_job_thread_callbacks* ThreadCallbacks, void* MallocUserData) {
     /*Get the allocation size. Want to avoid many small allocations so batch them together*/
     size_t AllocationSize = sizeof(ak_job_system); /*Space for the job system*/ 
@@ -2425,7 +2555,7 @@ AKATOMICDEF ak_job_system* AK_Job_System_Create(uint32_t MaxJobCount, uint32_t T
     AllocationSize += MaxJobCount*sizeof(ak__job); /*Space for the jobs*/
 
     /*Allocate and clear all the memory*/
-    ak_job_system* JobSystem = (ak_job_system*)AK_JOB_SYSTEM_MALLOC(AllocationSize, MallocUserData);
+    ak_job_system* JobSystem = (ak_job_system*)AK_Job_System__Malloc(AllocationSize, MallocUserData);
     AK_JOB_SYSTEM_ASSERT(JobSystem);
 
     if(!JobSystem) return NULL;
@@ -2461,50 +2591,48 @@ AKATOMICDEF ak_job_system* AK_Job_System_Create(uint32_t MaxJobCount, uint32_t T
         JobSystem->ThreadCallbacks = *ThreadCallbacks;
     }
 
+    AK_Atomic_Store_U32_Relaxed(&JobSystem->IsRunning, true);
+
     for(i = 0; i < ThreadCount; i++) {
-        ak__job_queue* JobQueue = AK_Job_System__Create_Queue(JobSystem);
-        AK_JOB_SYSTEM_ASSERT(JobQueue);
-        bool CreationResult = AK_Job_System__Create_Thread(JobSystem, JobQueue);
-        AK_JOB_SYSTEM_ASSERT(CreationResult);
+        ak__job_thread* Thread = AK_Job_System__Create_Thread(JobSystem, AK_Job_System__Thread_Runner_Callback);
+        AK_JOB_SYSTEM_ASSERT(Thread);
     }
 
     /*Validate that our memory is correct*/
-
     return JobSystem;
 }
 
 AKATOMICDEF void AK_Job_System_Delete(ak_job_system* JobSystem) {
-
-    /*Turn off all the queues*/    
-    for(ak__job_queue* Queue = AK_Atomic_Load_Ptr_Relaxed(&JobSystem->TopQueuePtr);
-        Queue; Queue = Queue->Next) {
-        AK_Atomic_Store_U32_Relaxed(&Queue->JobThread.IsRunning, false);
-    }
-    
+    /*Turn off the system*/    
+    AK_Atomic_Store_U32_Relaxed(&JobSystem->IsRunning, false);
     /*Set all the threads status to IsRunning false before we increment the semaphore*/
-    AK_LW_Semaphore_Add(&JobSystem->JobSemaphore, JobSystem->ThreadCount);
+    AK_LW_Semaphore_Add(&JobSystem->JobSemaphore, JobSystem->ThreadCount.Nonatomic);
 
     /*Wait for the threads to finish and delete them*/
-    for(ak__job_queue* Queue = AK_Atomic_Load_Ptr_Relaxed(&JobSystem->TopQueuePtr);
-        Queue; Queue = Queue->Next) {
-        
-        if(Queue->JobThread.ThreadID != (uint64_t)-1) {
-            AK_Thread_Wait(&Queue->JobThread.Thread);
-            AK_Thread_Delete(&Queue->JobThread.Thread);
-        }
+    ak__job_thread* Thread = AK_Atomic_Load_Ptr_Relaxed(&JobSystem->TopThreadPtr);
+    while(Thread) {
+        ak__job_thread* ThreadToDelete = Thread;
+        Thread = Thread->Next;
+        AK_Thread_Delete(&ThreadToDelete->Thread);
+        AK_Job_System__Free(ThreadToDelete, JobSystem->MallocUserData);
     }
 
     /*Finally delete all the queue memory*/
-    ak__job_queue* Queue = AK_Atomic_Load_Ptr_Relaxed(&JobSystem->TopQueuePtr);
+    ak__job_steal_queue* Queue = AK_Atomic_Load_Ptr_Relaxed(&JobSystem->NonThreadRunnerQueueTopPtr);
     while(Queue) {
-        ak__job_queue* QueueToDelete = Queue;
+        ak__job_steal_queue* QueueToDelete = Queue;
         Queue = Queue->Next;
-        AK_JOB_SYSTEM_FREE(QueueToDelete, JobSystem->MallocUserData);
+        AK_Job_System__Free(QueueToDelete, JobSystem->MallocUserData);
     }
-    AK_Atomic_Store_Ptr_Relaxed(&JobSystem->TopQueuePtr, NULL);
+    Queue = AK_Atomic_Load_Ptr_Relaxed(&JobSystem->ThreadRunnerQueueTopPtr);
+    while(Queue) {
+        ak__job_steal_queue* QueueToDelete = Queue;
+        Queue = Queue->Next;
+        AK_Job_System__Free(QueueToDelete, JobSystem->MallocUserData);
+    }
     AK_LW_Semaphore_Delete(&JobSystem->JobSemaphore);
     AK_TLS_Delete(&JobSystem->TLS);
-    AK_JOB_SYSTEM_FREE(JobSystem, JobSystem->MallocUserData);
+    AK_Job_System__Free(JobSystem, JobSystem->MallocUserData);
 }
 
 AKATOMICDEF ak_job_id AK_Job_System_Alloc_Job(ak_job_system* JobSystem, ak_job_data JobData, ak_job_id ParentID, ak_job_flags Flags) {
@@ -2554,7 +2682,7 @@ AKATOMICDEF void AK_Job_System_Free_Job(ak_job_system* JobSystem, ak_job_id JobI
 }
 
 AKATOMICDEF void AK_Job_System_Add_Job(ak_job_system* JobSystem, ak_job_id JobID) {
-    ak__job_queue* JobQueue = AK_Job_System__Get_Local_Queue(JobSystem);
+    ak__job_steal_queue* JobQueue = AK_Job_System__Get_Or_Create_Local_Steal_Queue(JobSystem);
     ak__job* Job = AK_Job_System__Get_Job(JobSystem, JobID);
     if(Job) {
         AK__Job_Queue_Add_Job(JobSystem, JobQueue, Job);
@@ -2563,8 +2691,8 @@ AKATOMICDEF void AK_Job_System_Add_Job(ak_job_system* JobSystem, ak_job_id JobID
 
 AKATOMICDEF void AK_Job_System_Wait_For_Job(ak_job_system* JobSystem, ak_job_id JobID) {
     while(AK_Job_System__Get_Job(JobSystem, JobID)) {
-        ak__job_queue* JobQueue = AK_Job_System__Get_Local_Queue(JobSystem);
-        AK_Job_System__Process_Next_Job(JobSystem, JobQueue);
+        ak__job_steal_queue* JobQueue = AK_Job_System__Get_Or_Create_Local_Steal_Queue(JobSystem);
+        AK_Job_Thread_Runner__Process_Next_Job(JobSystem, JobQueue);
     }
 }
 
