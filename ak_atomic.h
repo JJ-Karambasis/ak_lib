@@ -358,6 +358,21 @@ AKATOMICDEF void AK_LW_Semaphore_Increment(ak_lw_semaphore* Semaphore);
 AKATOMICDEF void AK_LW_Semaphore_Decrement(ak_lw_semaphore* Semaphore);
 AKATOMICDEF void AK_LW_Semaphore_Add(ak_lw_semaphore* Semaphore, int32_t Addend);
 
+typedef struct ak_auto_reset_event {
+    /*
+     1- Signaled
+     0- Reset and no threads are waiting
+    -N- Reset and N threads are waiting
+    */
+    ak_atomic_u32   Status; 
+    ak_lw_semaphore Semaphore;
+} ak_auto_reset_event;
+
+AKATOMICDEF bool AK_Auto_Reset_Event_Create(ak_auto_reset_event* Event, int32_t InitialStatus);
+AKATOMICDEF void AK_Auto_Reset_Event_Delete(ak_auto_reset_event* Event);
+AKATOMICDEF void AK_Auto_Reset_Event_Signal(ak_auto_reset_event* Event);
+AKATOMICDEF void AK_Auto_Reset_Event_Wait(ak_auto_reset_event* Event);
+
 #ifndef AK_DISABLE_ASYNC_STACK_INDEX
 
 #define AK_ASYNC_STACK_INDEX32_INVALID ((uint32_t)-1) 
@@ -1507,6 +1522,11 @@ AKATOMICDEF bool AK_Atomic_Compare_Exchange_Bool_Ptr_Explicit(ak_atomic_ptr* Obj
 }
 
 /*OS Thread primitives*/
+#if !defined(AK_OS_THREAD_ASSERT)
+#include <assert.h>
+#define AK_OS_THREAD_ASSERT(cond) assert(cond)
+#endif
+
 #if defined(AK_ATOMIC_WIN32_OS)
 AKATOMICDEF uint32_t AK_Get_Processor_Thread_Count(void) {
     SYSTEM_INFO SystemInfo = {0};
@@ -1879,6 +1899,41 @@ AKATOMICDEF void AK_LW_Semaphore_Add(ak_lw_semaphore* Semaphore, int32_t Addend)
     int32_t ToRelease = -OldCount < Addend ? -OldCount : Addend;
     if(ToRelease > 0) {
         AK_Semaphore_Add(&Semaphore->InternalSem, ToRelease);
+    }
+}
+
+AKATOMICDEF bool AK_Auto_Reset_Event_Create(ak_auto_reset_event* Event, int32_t InitialStatus) {
+    if(InitialStatus < 0 || InitialStatus > 1) {
+        return false;
+    }
+    bool Result = AK_LW_Semaphore_Create(&Event->Semaphore, 0);
+    AK_Atomic_Store_U32(&Event->Status, InitialStatus, AK_ATOMIC_MEMORY_ORDER_RELEASE);
+    return Result;
+}
+
+AKATOMICDEF void AK_Auto_Reset_Event_Delete(ak_auto_reset_event* Event) {
+    AK_LW_Semaphore_Delete(&Event->Semaphore);
+}
+
+AKATOMICDEF void AK_Auto_Reset_Event_Signal(ak_auto_reset_event* Event) {
+    int32_t OldStatus = (int32_t)AK_Atomic_Load_U32_Relaxed(&Event->Status);
+    for(;;) {
+        AK_OS_THREAD_ASSERT(OldStatus <= 1);
+        int32_t NewStatus = OldStatus < 1 ? OldStatus + 1 : 1;
+        if(AK_Atomic_Compare_Exchange_U32_Weak_Explicit(&Event->Status, (uint32_t*)&OldStatus, NewStatus, AK_ATOMIC_MEMORY_ORDER_RELEASE, AK_ATOMIC_MEMORY_ORDER_RELAXED)) {
+            break;
+        }
+    }
+    if(OldStatus < 0) {
+        AK_LW_Semaphore_Increment(&Event->Semaphore);
+    }
+}
+
+AKATOMICDEF void AK_Auto_Reset_Event_Wait(ak_auto_reset_event* Event) {
+    int32_t OldStatus = (int32_t)AK_Atomic_Fetch_Add_U32(&Event->Status, -1, AK_ATOMIC_MEMORY_ORDER_ACQUIRE);
+    AK_OS_THREAD_ASSERT(OldStatus <= 1);
+    if(OldStatus < 1) {
+        AK_LW_Semaphore_Decrement(&Event->Semaphore);
     }
 }
 
@@ -2353,49 +2408,6 @@ static ak__job_steal_queue* AK_Job_System__Get_Largest_Steal_Queue(ak_job_system
     }
 
     return BestQueue;
-}
-
-static ak__job* AK_Job_Thread__Steal_Next_Job(ak_job_system* JobSystem, ak__job_steal_queue* JobQueue) {
-    size_t BestSize = 0;
-    ak__job_steal_queue* BestQueue = NULL;
-
-    ak__job_steal_queue* Queue;
-    for(Queue = AK_Atomic_Load_Ptr_Relaxed(&JobSystem->NonThreadRunnerQueueTopPtr);
-        Queue; Queue = Queue->Next) {
-        if(Queue != JobQueue) {
-            size_t QueueSize = AK_Job_System__Get_Steal_Queue_Size(Queue); 
-            if(QueueSize > BestSize) {
-                BestSize = QueueSize;
-                BestQueue = Queue;
-            }
-        }
-    }
-
-    if(BestQueue) {
-        ak__job* Job = AK_Job_System__Steal_Job(JobSystem, BestQueue);
-        if(Job) return Job;
-    }
-
-    BestSize = 0;
-    BestQueue = NULL;
-
-    for(Queue = AK_Atomic_Load_Ptr_Relaxed(&JobSystem->ThreadRunnerQueueTopPtr);
-        Queue; Queue = Queue->Next) {
-        if(Queue != JobQueue) {
-            size_t QueueSize = AK_Job_System__Get_Steal_Queue_Size(Queue); 
-            if(QueueSize > BestSize) {
-                BestSize = QueueSize;
-                BestQueue = Queue;
-            }
-        }
-    }
-
-    if(BestQueue) {
-        ak__job* Job = AK_Job_System__Steal_Job(JobSystem, BestQueue);
-        if(Job) return Job;
-    }
-
-    return NULL;
 }
 
 static void AK__Job_Queue_Add_Job(ak_job_system* JobSystem, ak__job_steal_queue* JobQueue, ak__job* Job) {
