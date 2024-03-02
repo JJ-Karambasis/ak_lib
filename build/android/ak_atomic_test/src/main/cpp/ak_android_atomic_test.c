@@ -94,9 +94,9 @@ void android_main(struct android_app* App) {
         if(TestContext.IsReady && !TestContext.IsFinished) {
             const char* Filters[] = {
                 "",
-                "--filter=AK_Job_System.*"
+                "--filter=AK_Job_System.DependencyTest"
             };
-            utest_main(2, Filters);
+            utest_main(0, Filters);
             ANativeActivity_finish(App->activity);
             TestContext.IsFinished = true;
         }
