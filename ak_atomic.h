@@ -2580,7 +2580,7 @@ static void AK_Job_Thread_Runner__Run(ak__job_thread* JobThread) {
             if(AK_Atomic_Load_U32_Relaxed(&JobSystem->ActiveThreadCount) > JobSystem->TargetThreadCount) {
                 AK_Atomic_Decrement_U32_Relaxed(&JobSystem->ActiveThreadCount);
                 AK_Atomic_Increment_U32_Relaxed(&JobSystem->WaitingThreadCount);
-                bool ShouldWait = true;
+                bool ShouldWait = AK_Atomic_Load_U32_Relaxed(&JobSystem->IsRunning);
                 while(ShouldWait) {
                     AK_Condition_Variable_Wait(&JobSystem->ThreadManagementVariable, &JobSystem->ThreadManagementLock);
                     ShouldWait = AK_Atomic_Load_U32_Relaxed(&JobSystem->ActiveThreadCount) >= JobSystem->TargetThreadCount && 
@@ -2702,9 +2702,12 @@ AKATOMICDEF ak_job_system* AK_Job_System_Create(uint32_t MaxJobCount, uint32_t T
 AKATOMICDEF void AK_Job_System_Delete(ak_job_system* JobSystem) {
     /*Turn off the system*/    
     AK_Atomic_Store_U32_Relaxed(&JobSystem->IsRunning, false);
+    AK_Atomic_Thread_Fence_Seq_Cst();
+    AK_Atomic_Compiler_Fence_Seq_Cst();
+
     /*Set all the threads status to IsRunning false before we increment the semaphore*/
-    AK_Condition_Variable_Wake_All(&JobSystem->ThreadManagementVariable);
     AK_LW_Semaphore_Add(&JobSystem->JobSemaphore, JobSystem->ThreadCount.Nonatomic);
+    AK_Condition_Variable_Wake_All(&JobSystem->ThreadManagementVariable);
 
     /*Wait for the threads to finish and delete them*/
     ak__job_thread* Thread = AK_Atomic_Load_Ptr_Relaxed(&JobSystem->TopThreadPtr);
