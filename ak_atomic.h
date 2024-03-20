@@ -482,9 +482,17 @@ AKATOMICDEF void           AK_Job_System_End_Job_Wait(ak_job_system* JobSystem, 
 
 #endif
 
+#ifdef __cplusplus
+}
+#endif
+
 #endif
 
 #ifdef AK_ATOMIC_IMPLEMENTATION
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*Compiler specific functions (all other atomics are built ontop of these)*/
 
@@ -501,31 +509,31 @@ AKATOMICDEF void AK_Atomic_Store_U32_Relaxed(ak_atomic_u32* Object, uint32_t Val
 }
 
 AKATOMICDEF uint32_t AK_Atomic_Exchange_U32_Relaxed(ak_atomic_u32* Object, uint32_t NewValue) {
-    return (uint32_t)_InterlockedExchange((volatile LONG*)Object, NewValue);
+    return (uint32_t)_InterlockedExchange((volatile LONG*)Object, (LONG)NewValue);
 }
 
 AKATOMICDEF uint32_t AK_Atomic_Compare_Exchange_U32_Relaxed(ak_atomic_u32* Object, uint32_t OldValue, uint32_t NewValue) {
-    return _InterlockedCompareExchange((volatile LONG*)Object, NewValue, OldValue);
+    return (uint32_t)_InterlockedCompareExchange((volatile LONG*)Object, (LONG)NewValue, (LONG)OldValue);
 }
 
 AKATOMICDEF bool AK_Atomic_Compare_Exchange_U32_Weak_Relaxed(ak_atomic_u32* Object, uint32_t* OldValue, uint32_t NewValue) {
     uint32_t Old = *OldValue;
-    uint32_t Previous = (uint32_t)_InterlockedCompareExchange((volatile LONG*)Object, NewValue, Old);
+    uint32_t Previous = (uint32_t)_InterlockedCompareExchange((volatile LONG*)Object, (LONG)NewValue, (LONG)Old);
     bool Result = (Previous == Old);
     if(!Result) *OldValue = Previous;
     return Result;
 }
 
 AKATOMICDEF uint32_t AK_Atomic_Fetch_Add_U32_Relaxed(ak_atomic_u32* Object, int32_t Operand) {
-    return _InterlockedExchangeAdd((volatile LONG*)Object, Operand);
+    return (uint32_t)_InterlockedExchangeAdd((volatile LONG*)Object, (LONG)Operand);
 }
 
 AKATOMICDEF uint32_t AK_Atomic_Increment_U32_Relaxed(ak_atomic_u32* Object) {
-    return _InterlockedIncrement((volatile LONG*)Object);
+    return (uint32_t)_InterlockedIncrement((volatile LONG*)Object);
 }
 
 AKATOMICDEF uint32_t AK_Atomic_Decrement_U32_Relaxed(ak_atomic_u32* Object) {
-    return _InterlockedDecrement((volatile LONG*)Object);
+    return (uint32_t)_InterlockedDecrement((volatile LONG*)Object);
 }
 
 AKATOMICDEF uint64_t AK_Atomic_Load_U64_Relaxed(const ak_atomic_u64* Object) {
@@ -536,7 +544,7 @@ AKATOMICDEF uint64_t AK_Atomic_Load_U64_Relaxed(const ak_atomic_u64* Object) {
 #else
     /*Interlocked compare exchange is the most compatibile way to get an atomic 
       64 bit load on 32 bit x86*/
-    return AK_Atomic_Compare_Exchange_U64_Relaxed((ak_atomic_u64*)Object, 0, 0);
+    return (uint64_t)AK_Atomic_Compare_Exchange_U64_Relaxed((ak_atomic_u64*)Object, 0, 0);
 #endif
 }
 
@@ -546,7 +554,7 @@ AKATOMICDEF void AK_Atomic_Store_U64_Relaxed(ak_atomic_u64* Object, uint64_t Val
 #else
     uint64_t Expected = Object->Nonatomic;
     for(;;) {
-        uint64_t Previous = _InterlockedCompareExchange64((LONGLONG*)Object, Value, Expected);
+        uint64_t Previous = (uint64_t)_InterlockedCompareExchange64((LONGLONG*)Object, (LONGLONG)Value, (LONGLONG)Expected);
         if(Previous == Expected) break;
         Expected = Previous;
     }
@@ -555,11 +563,11 @@ AKATOMICDEF void AK_Atomic_Store_U64_Relaxed(ak_atomic_u64* Object, uint64_t Val
 
 AKATOMICDEF uint64_t AK_Atomic_Exchange_U64_Relaxed(ak_atomic_u64* Object, uint64_t NewValue) {
 #if (AK_ATOMIC_PTR_SIZE == 8)
-    return _InterlockedExchange64((volatile LONGLONG*)Object, NewValue);
+    return (uint64_t)_InterlockedExchange64((volatile LONGLONG*)Object, (LONGLONG)NewValue);
 #else
     uint64_t Expected = Object->Nonatomic;
     for(;;) {
-        uint64_t Previous = _InterlockedCompareExchange64((volatile LONGLONG*)Object, NewValue, Expected);
+        uint64_t Previous = (uint64_t)_InterlockedCompareExchange64((volatile LONGLONG*)Object, (LONGLONG)NewValue, (LONGLONG)Expected);
         if(Previous == Expected) return Previous;
         Expected = Previous;
     }
@@ -567,12 +575,12 @@ AKATOMICDEF uint64_t AK_Atomic_Exchange_U64_Relaxed(ak_atomic_u64* Object, uint6
 }
 
 AKATOMICDEF uint64_t AK_Atomic_Compare_Exchange_U64_Relaxed(ak_atomic_u64* Object, uint64_t OldValue, uint64_t NewValue) {
-    return (uint64_t)_InterlockedCompareExchange64((volatile LONGLONG*)Object, NewValue, OldValue);
+    return (uint64_t)_InterlockedCompareExchange64((volatile LONGLONG*)Object, (LONGLONG)NewValue, (LONGLONG)OldValue);
 }
 
 AKATOMICDEF bool AK_Atomic_Compare_Exchange_U64_Weak_Relaxed(ak_atomic_u64* Object, uint64_t* OldValue, uint64_t NewValue) {
     uint64_t Old = *OldValue;
-    uint64_t Previous = (uint64_t)_InterlockedCompareExchange64((volatile LONGLONG*)Object, NewValue, Old);
+    uint64_t Previous = (uint64_t)_InterlockedCompareExchange64((volatile LONGLONG*)Object, (LONGLONG)NewValue, (LONGLONG)Old);
     bool Result = (Previous == Old);
     if(!Result) *OldValue = Previous;
     return Result;
@@ -580,11 +588,11 @@ AKATOMICDEF bool AK_Atomic_Compare_Exchange_U64_Weak_Relaxed(ak_atomic_u64* Obje
 
 AKATOMICDEF uint64_t AK_Atomic_Fetch_Add_U64_Relaxed(ak_atomic_u64* Object, int64_t Operand) {
 #if (AK_ATOMIC_PTR_SIZE == 8)
-    return _InterlockedExchangeAdd64((volatile LONGLONG*)Object, Operand);
+    return (uint64_t)_InterlockedExchangeAdd64((volatile LONGLONG*)Object, (LONGLONG)Operand);
 #else
     uint64_t Expected = Object->Nonatomic;
     for(;;) {
-        uint64_t Previous = _InterlockedCompareExchange64((volatile LONGLONG*)Object, Expected+Operand, Expected);
+        uint64_t Previous = (uint64_t)_InterlockedCompareExchange64((volatile LONGLONG*)Object, (LONGLONG)(Expected+Operand), (LONGLONG)Expected);
         if(Previous == Expected) return Previous;
         Expected = Previous;
     }
@@ -593,7 +601,7 @@ AKATOMICDEF uint64_t AK_Atomic_Fetch_Add_U64_Relaxed(ak_atomic_u64* Object, int6
 
 AKATOMICDEF uint64_t AK_Atomic_Increment_U64_Relaxed(ak_atomic_u64* Object) {
 #if (AK_ATOMIC_PTR_SIZE == 8)
-    return _InterlockedIncrement64((volatile LONGLONG*)Object);
+    return (uint64_t)_InterlockedIncrement64((volatile LONGLONG*)Object);
 #else
     return AK_Atomic_Fetch_Add_U64_Relaxed(Object, 1)+1;
 #endif
@@ -601,7 +609,7 @@ AKATOMICDEF uint64_t AK_Atomic_Increment_U64_Relaxed(ak_atomic_u64* Object) {
 
 AKATOMICDEF uint64_t AK_Atomic_Decrement_U64_Relaxed(ak_atomic_u64* Object) {
 #if (AK_ATOMIC_PTR_SIZE == 8)
-    return _InterlockedDecrement64((volatile LONGLONG*)Object);
+    return (uint64_t)_InterlockedDecrement64((volatile LONGLONG*)Object);
 #else
     return AK_Atomic_Fetch_Add_U64_Relaxed(Object, -1) - 1;
 #endif
@@ -1556,7 +1564,7 @@ AKATOMICDEF uint64_t AK_Query_Performance_Frequency(void) {
 
 static DWORD WINAPI AK_Thread__Internal_Proc(LPVOID Parameter) {
     ak_thread* Thread = (ak_thread*)Parameter;
-    return Thread->Callback(Thread, Thread->UserData);
+    return (DWORD)Thread->Callback(Thread, Thread->UserData);
 }
 
 AKATOMICDEF bool AK_Thread_Create(ak_thread* Thread, ak_thread_callback_func* Callback, void* UserData) {
@@ -1842,7 +1850,7 @@ AKATOMICDEF void AK_TLS_Set(ak_tls* TLS, void* Data) {
 static bool AK_LW_Semaphore__Internal_Try(ak_lw_semaphore* Semaphore) {
     int32_t OldCount = (int32_t)AK_Atomic_Load_U32_Relaxed(&Semaphore->Count);
     while(OldCount > 0) {
-        if(AK_Atomic_Compare_Exchange_U32_Weak_Explicit(&Semaphore->Count, (uint32_t*)&OldCount, OldCount-1, AK_ATOMIC_MEMORY_ORDER_ACQUIRE, AK_ATOMIC_MEMORY_ORDER_RELAXED)) {
+        if(AK_Atomic_Compare_Exchange_U32_Weak_Explicit(&Semaphore->Count, (uint32_t*)&OldCount, (uint32_t)(OldCount-1), AK_ATOMIC_MEMORY_ORDER_ACQUIRE, AK_ATOMIC_MEMORY_ORDER_RELAXED)) {
             return true;
         }
     }
@@ -1854,7 +1862,7 @@ static void AK_LW_Semaphore__Internal_Partial_Spin_Wait(ak_lw_semaphore* Semapho
     uint32_t SpinCount = 0;
     while(SpinCount++ < Semaphore->MaxSpinCount) {
         OldCount = (int32_t)AK_Atomic_Load_U32_Relaxed(&Semaphore->Count);
-        if((OldCount > 0) && AK_Atomic_Compare_Exchange_Bool_U32_Explicit(&Semaphore->Count, OldCount, OldCount-1, AK_ATOMIC_MEMORY_ORDER_ACQUIRE, AK_ATOMIC_MEMORY_ORDER_RELAXED))
+        if((OldCount > 0) && AK_Atomic_Compare_Exchange_Bool_U32_Explicit(&Semaphore->Count, (uint32_t)OldCount, (uint32_t)(OldCount-1), AK_ATOMIC_MEMORY_ORDER_ACQUIRE, AK_ATOMIC_MEMORY_ORDER_RELAXED))
             return;
         AK_Atomic_Compiler_Fence_Acq(); /*Prevent compiler from collapsing the loop*/
     }
@@ -1865,7 +1873,7 @@ static void AK_LW_Semaphore__Internal_Partial_Spin_Wait(ak_lw_semaphore* Semapho
 }
 
 AKATOMICDEF bool AK_LW_Semaphore_Create_With_Spin_Count(ak_lw_semaphore* Semaphore, int32_t InitialCount, uint32_t SpinCount) {
-    AK_Atomic_Store_U32_Relaxed(&Semaphore->Count, InitialCount);
+    AK_Atomic_Store_U32_Relaxed(&Semaphore->Count, (uint32_t)InitialCount);
     Semaphore->MaxSpinCount = SpinCount;
     return AK_Semaphore_Create(&Semaphore->InternalSem, 0);
 }
@@ -1901,7 +1909,7 @@ AKATOMICDEF bool AK_Auto_Reset_Event_Create(ak_auto_reset_event* Event, int32_t 
         return false;
     }
     bool Result = AK_LW_Semaphore_Create(&Event->Semaphore, 0);
-    AK_Atomic_Store_U32(&Event->Status, InitialStatus, AK_ATOMIC_MEMORY_ORDER_RELEASE);
+    AK_Atomic_Store_U32(&Event->Status, (uint32_t)InitialStatus, AK_ATOMIC_MEMORY_ORDER_RELEASE);
     return Result;
 }
 
@@ -1914,7 +1922,7 @@ AKATOMICDEF void AK_Auto_Reset_Event_Signal(ak_auto_reset_event* Event) {
     for(;;) {
         AK_OS_THREAD_ASSERT(OldStatus <= 1);
         int32_t NewStatus = OldStatus < 1 ? OldStatus + 1 : 1;
-        if(AK_Atomic_Compare_Exchange_U32_Weak_Explicit(&Event->Status, (uint32_t*)&OldStatus, NewStatus, AK_ATOMIC_MEMORY_ORDER_RELEASE, AK_ATOMIC_MEMORY_ORDER_RELAXED)) {
+        if(AK_Atomic_Compare_Exchange_U32_Weak_Explicit(&Event->Status, (uint32_t*)&OldStatus, (uint32_t)NewStatus, AK_ATOMIC_MEMORY_ORDER_RELEASE, AK_ATOMIC_MEMORY_ORDER_RELAXED)) {
             break;
         }
     }
@@ -2262,7 +2270,7 @@ ak__job_steal_queue* AK_Job_System__Create_Steal_Queue(ak_job_system* JobSystem,
 
     /*Append to link list atomically*/
     for(;;) {
-        ak__job_steal_queue* OldTop = AK_Atomic_Load_Ptr_Relaxed(TopQueuePtr);
+        ak__job_steal_queue* OldTop = (ak__job_steal_queue*)AK_Atomic_Load_Ptr_Relaxed(TopQueuePtr);
         JobQueue->Next = OldTop;
         if(AK_Atomic_Compare_Exchange_Bool_Ptr_Explicit(TopQueuePtr, OldTop, JobQueue, AK_ATOMIC_MEMORY_ORDER_RELEASE, AK_ATOMIC_MEMORY_ORDER_RELAXED)) {
             return JobQueue;
@@ -2287,7 +2295,7 @@ ak__job_thread* AK_Job_System__Create_Thread(ak_job_system* JobSystem, ak_thread
     AK_Atomic_Increment_U32_Relaxed(&JobSystem->ThreadCount);
 
     for(;;) {
-        ak__job_thread* OldTop = AK_Atomic_Load_Ptr_Relaxed(&JobSystem->TopThreadPtr);
+        ak__job_thread* OldTop = (ak__job_thread*)AK_Atomic_Load_Ptr_Relaxed(&JobSystem->TopThreadPtr);
         Thread->Next = OldTop;
         if(AK_Atomic_Compare_Exchange_Bool_Ptr_Explicit(&JobSystem->TopThreadPtr, OldTop, Thread, AK_ATOMIC_MEMORY_ORDER_RELEASE, AK_ATOMIC_MEMORY_ORDER_RELAXED)) {
             return Thread;
@@ -2304,7 +2312,7 @@ static ak__job_steal_queue* AK_Job_System__Get_Local_Steal_Queue(ak_job_system* 
         /*If we do not find a queue in our TLS we linear search for it by thread id*/
 
         ak__job_steal_queue* Queue;
-        for(Queue = AK_Atomic_Load_Ptr_Relaxed(&JobSystem->NonThreadRunnerQueueTopPtr);
+        for(Queue = (ak__job_steal_queue*)AK_Atomic_Load_Ptr_Relaxed(&JobSystem->NonThreadRunnerQueueTopPtr);
             Queue; Queue = Queue->Next) {
             if(Queue->ThreadID == ThreadID) {
                 JobQueue = Queue;
@@ -2312,7 +2320,7 @@ static ak__job_steal_queue* AK_Job_System__Get_Local_Steal_Queue(ak_job_system* 
             }
         }
 
-        for(Queue = AK_Atomic_Load_Ptr_Relaxed(&JobSystem->ThreadRunnerQueueTopPtr);
+        for(Queue = (ak__job_steal_queue*)AK_Atomic_Load_Ptr_Relaxed(&JobSystem->ThreadRunnerQueueTopPtr);
             Queue; Queue = Queue->Next) {
             if(Queue->ThreadID == ThreadID) {
                 JobQueue = Queue;
@@ -2346,7 +2354,7 @@ static ak__job* AK_Job_System__Steal_Job(ak_job_system* JobSystem, ak__job_steal
     ak__job* Result = NULL;
     if(Top < Bottom) {
         Result = JobQueue->Queue[Top % JobSystem->MaxJobCount];
-        if(!AK_Atomic_Compare_Exchange_Bool_U32_Explicit(&JobQueue->TopIndex, Top, Top+1, AK_ATOMIC_MEMORY_ORDER_ACQ_REL, AK_ATOMIC_MEMORY_ORDER_RELAXED)) {
+        if(!AK_Atomic_Compare_Exchange_Bool_U32_Explicit(&JobQueue->TopIndex, (uint32_t)Top, (uint32_t)(Top+1), AK_ATOMIC_MEMORY_ORDER_ACQ_REL, AK_ATOMIC_MEMORY_ORDER_RELAXED)) {
             Result = NULL;
         }
     } 
@@ -2356,7 +2364,7 @@ static ak__job* AK_Job_System__Steal_Job(ak_job_system* JobSystem, ak__job_steal
 static ak__job* AK_Job_System__Pop_Job(ak_job_system* JobSystem, ak__job_steal_queue* JobQueue) {
     int32_t Bottom = ((int32_t)AK_Atomic_Load_U32_Relaxed(&JobQueue->BottomIndex))-1;
 
-    AK_Atomic_Store_U32_Relaxed(&JobQueue->BottomIndex, Bottom);
+    AK_Atomic_Store_U32_Relaxed(&JobQueue->BottomIndex, (uint32_t)Bottom);
     /*We need to make sure Top is read before bottom thus this is a StoreLoad situation
       and needs an explicit memory barrier to handle this case */
     AK_Atomic_Thread_Fence_Seq_Cst();
@@ -2367,13 +2375,13 @@ static ak__job* AK_Job_System__Pop_Job(ak_job_system* JobSystem, ak__job_steal_q
     if(Top <= Bottom) {
         Result = JobQueue->Queue[Bottom % JobSystem->MaxJobCount];
         if(Top == Bottom) {
-            if(!AK_Atomic_Compare_Exchange_Bool_U32_Explicit(&JobQueue->TopIndex, Top, Top+1, AK_ATOMIC_MEMORY_ORDER_ACQ_REL, AK_ATOMIC_MEMORY_ORDER_RELAXED)) {
+            if(!AK_Atomic_Compare_Exchange_Bool_U32_Explicit(&JobQueue->TopIndex, (uint32_t)Top, (uint32_t)(Top+1), AK_ATOMIC_MEMORY_ORDER_ACQ_REL, AK_ATOMIC_MEMORY_ORDER_RELAXED)) {
                 Result = NULL;
             }
-            AK_Atomic_Store_U32_Relaxed(&JobQueue->BottomIndex, Bottom+1);
+            AK_Atomic_Store_U32_Relaxed(&JobQueue->BottomIndex, (uint32_t)(Bottom+1));
         }
     } else {
-        AK_Atomic_Store_U32_Relaxed(&JobQueue->BottomIndex, Bottom+1);
+        AK_Atomic_Store_U32_Relaxed(&JobQueue->BottomIndex, (uint32_t)(Bottom+1));
     }
     return Result;
 }
@@ -2387,7 +2395,7 @@ static void AK_Job_System__Push_Job(ak_job_system* JobSystem, ak__job_steal_queu
     JobQueue->Queue[Bottom % JobSystem->MaxJobCount] = Job;
     AK_Atomic_Thread_Fence_Seq_Cst();
     AK_Atomic_Compiler_Fence_Seq_Cst();
-    AK_Atomic_Store_U32(&JobQueue->BottomIndex, Bottom+1, AK_ATOMIC_MEMORY_ORDER_RELEASE);
+    AK_Atomic_Store_U32(&JobQueue->BottomIndex, (uint32_t)(Bottom+1), AK_ATOMIC_MEMORY_ORDER_RELEASE);
 }
 
 static size_t AK_Job_System__Get_Steal_Queue_Size(ak__job_steal_queue* JobQueue) {
@@ -2401,7 +2409,7 @@ static ak__job_steal_queue* AK_Job_System__Get_Largest_Steal_Queue(ak_job_system
     ak__job_steal_queue* BestQueue = NULL;
 
     ak__job_steal_queue* Queue;
-    for(Queue = AK_Atomic_Load_Ptr_Relaxed(&JobSystem->NonThreadRunnerQueueTopPtr);
+    for(Queue = (ak__job_steal_queue*)AK_Atomic_Load_Ptr_Relaxed(&JobSystem->NonThreadRunnerQueueTopPtr);
         Queue; Queue = Queue->Next) {
         if(Queue != CurrentQueue) {
             size_t QueueSize = AK_Job_System__Get_Steal_Queue_Size(Queue); 
@@ -2414,7 +2422,7 @@ static ak__job_steal_queue* AK_Job_System__Get_Largest_Steal_Queue(ak_job_system
 
     if(BestQueue) return BestQueue;
 
-    for(Queue = AK_Atomic_Load_Ptr_Relaxed(&JobSystem->ThreadRunnerQueueTopPtr);
+    for(Queue = (ak__job_steal_queue*)AK_Atomic_Load_Ptr_Relaxed(&JobSystem->ThreadRunnerQueueTopPtr);
         Queue; Queue = Queue->Next) {
         if(Queue != CurrentQueue) {
             size_t QueueSize = AK_Job_System__Get_Steal_Queue_Size(Queue); 
@@ -2486,7 +2494,7 @@ static void AK_Job_System__Finish_Job(ak_job_system* JobSystem, ak__job_steal_qu
       parent*/
     uint32_t IsProcessing = AK_Atomic_Load_U32_Relaxed(&Job->IsProcessing);
     if(AK_Atomic_Decrement_U32_Relaxed(&Job->PendingJobs) == 0 && IsProcessing) {
-        ak__job_dependency* Dependency = AK_Atomic_Load_Ptr_Relaxed(&Job->DependencyList);
+        ak__job_dependency* Dependency = (ak__job_dependency*)AK_Atomic_Load_Ptr_Relaxed(&Job->DependencyList);
         while(Dependency) {
             ak__job_dependency* DependencyToDelete = Dependency;
             Dependency = Dependency->Next;
@@ -2580,7 +2588,7 @@ static void AK_Job_Thread_Runner__Run(ak__job_thread* JobThread) {
             if(AK_Atomic_Load_U32_Relaxed(&JobSystem->ActiveThreadCount) > JobSystem->TargetThreadCount) {
                 AK_Atomic_Decrement_U32_Relaxed(&JobSystem->ActiveThreadCount);
                 AK_Atomic_Increment_U32_Relaxed(&JobSystem->WaitingThreadCount);
-                bool ShouldWait = AK_Atomic_Load_U32_Relaxed(&JobSystem->IsRunning);
+                bool ShouldWait = (bool)AK_Atomic_Load_U32_Relaxed(&JobSystem->IsRunning);
                 while(ShouldWait) {
                     AK_Condition_Variable_Wait(&JobSystem->ThreadManagementVariable, &JobSystem->ThreadManagementLock);
                     ShouldWait = AK_Atomic_Load_U32_Relaxed(&JobSystem->ActiveThreadCount) >= JobSystem->TargetThreadCount && 
@@ -2706,11 +2714,11 @@ AKATOMICDEF void AK_Job_System_Delete(ak_job_system* JobSystem) {
     AK_Atomic_Compiler_Fence_Seq_Cst();
 
     /*Set all the threads status to IsRunning false before we increment the semaphore*/
-    AK_LW_Semaphore_Add(&JobSystem->JobSemaphore, JobSystem->ThreadCount.Nonatomic);
+    AK_LW_Semaphore_Add(&JobSystem->JobSemaphore, (int32_t)JobSystem->ThreadCount.Nonatomic);
     AK_Condition_Variable_Wake_All(&JobSystem->ThreadManagementVariable);
 
     /*Wait for the threads to finish and delete them*/
-    ak__job_thread* Thread = AK_Atomic_Load_Ptr_Relaxed(&JobSystem->TopThreadPtr);
+    ak__job_thread* Thread = (ak__job_thread*)AK_Atomic_Load_Ptr_Relaxed(&JobSystem->TopThreadPtr);
     while(Thread) {
         ak__job_thread* ThreadToDelete = Thread;
         Thread = Thread->Next;
@@ -2719,13 +2727,13 @@ AKATOMICDEF void AK_Job_System_Delete(ak_job_system* JobSystem) {
     }
 
     /*Finally delete all the queue memory*/
-    ak__job_steal_queue* Queue = AK_Atomic_Load_Ptr_Relaxed(&JobSystem->NonThreadRunnerQueueTopPtr);
+    ak__job_steal_queue* Queue = (ak__job_steal_queue*)AK_Atomic_Load_Ptr_Relaxed(&JobSystem->NonThreadRunnerQueueTopPtr);
     while(Queue) {
         ak__job_steal_queue* QueueToDelete = Queue;
         Queue = Queue->Next;
         AK_Job_System__Free(QueueToDelete, JobSystem->MallocUserData);
     }
-    Queue = AK_Atomic_Load_Ptr_Relaxed(&JobSystem->ThreadRunnerQueueTopPtr);
+    Queue = (ak__job_steal_queue*)AK_Atomic_Load_Ptr_Relaxed(&JobSystem->ThreadRunnerQueueTopPtr);
     while(Queue) {
         ak__job_steal_queue* QueueToDelete = Queue;
         Queue = Queue->Next;
@@ -2829,7 +2837,7 @@ AKATOMICDEF void AK_Job_System_Add_Dependency(ak_job_system* JobSystem, ak_job_i
     AK_Atomic_Increment_U32_Relaxed(&DependencyJob->PendingDependencies);
 
     for(;;) {
-        ak__job_dependency* OldTop = AK_Atomic_Load_Ptr_Relaxed(&Job->DependencyList);
+        ak__job_dependency* OldTop = (ak__job_dependency*)AK_Atomic_Load_Ptr_Relaxed(&Job->DependencyList);
         Dependency->Next = OldTop;
         if(AK_Atomic_Compare_Exchange_Bool_Ptr_Explicit(&Job->DependencyList, OldTop, Dependency, AK_ATOMIC_MEMORY_ORDER_RELEASE, AK_ATOMIC_MEMORY_ORDER_RELAXED)) {
             return;
@@ -2851,6 +2859,10 @@ AKATOMICDEF void AK_Job_System_End_Job_Wait(ak_job_system* JobSystem, ak_job_id 
     AK_Atomic_Increment_U32(&JobSystem->ActiveThreadCount, AK_ATOMIC_MEMORY_ORDER_RELEASE);
 }
 
+#endif
+
+#ifdef __cplusplus
+}
 #endif
 
 #endif
