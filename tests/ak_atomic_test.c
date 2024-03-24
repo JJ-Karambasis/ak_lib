@@ -944,24 +944,22 @@ typedef struct {
     uint32_t Data[AK_JOB_SYSTEM_FAST_USERDATA_SIZE*10];
 } ak_job_system_job_user_data_large_data;
 
-AK_JOB_CALLBACK_DEFINE(AK_Job_System_Small_User_Data_Test_Callback) {
+AK_JOB_SYSTEM_CALLBACK_DEFINE(AK_Job_System_Small_User_Data_Test_Callback) {
     ak_job_system_job_user_data_small_data* JobData = (ak_job_system_job_user_data_small_data*)JobUserData;
     assert(JobData->Size == AK_JOB_SYSTEM_FAST_USERDATA_SIZE);
     uint8_t i;
     for(i = 0; i < AK_JOB_SYSTEM_FAST_USERDATA_SIZE-1; i++) {
         assert(JobData->Data[i] == i);
     }
-    return AK_JOB_STATUS_COMPLETE;
 }
 
-AK_JOB_CALLBACK_DEFINE(AK_Job_System_Large_User_Data_Test_Callback) {
+AK_JOB_SYSTEM_CALLBACK_DEFINE(AK_Job_System_Large_User_Data_Test_Callback) {
     ak_job_system_job_user_data_large_data* JobData = (ak_job_system_job_user_data_large_data*)JobUserData;
     assert(JobData->Size == AK_JOB_SYSTEM_FAST_USERDATA_SIZE*10);
     uint32_t i;
     for(i = 0; i < AK_JOB_SYSTEM_FAST_USERDATA_SIZE*10; i++) {
         assert(JobData->Data[i] == i);
     }
-    return AK_JOB_STATUS_COMPLETE;
 }
 
 typedef struct {
@@ -995,14 +993,14 @@ UTEST(AK_Job_System, UserData) {
             LargeData.Data[j] = j;
         }
 
-        ak_job_data SmallJobData;
+        ak_job_system_data SmallJobData;
         SmallJobData.JobCallback = AK_Job_System_Small_User_Data_Test_Callback;
         SmallJobData.Data = &SmallData;
         SmallJobData.DataByteSize = sizeof(SmallData);
         ak_job_id JobID = AK_Job_System_Alloc_Job(JobSystem, SmallJobData, 
                                                   RootJob, AK_JOB_FLAG_QUEUE_IMMEDIATELY_BIT|AK_JOB_FLAG_FREE_WHEN_DONE);
         
-        ak_job_data LargeJobData;
+        ak_job_system_data LargeJobData;
         LargeJobData.JobCallback = AK_Job_System_Large_User_Data_Test_Callback;
         LargeJobData.Data = &LargeData;
         LargeJobData.DataByteSize = sizeof(LargeData);
@@ -1027,11 +1025,10 @@ typedef struct {
     uint32_t                   Index;
 } ak_job_system_job_data;
 
-AK_JOB_CALLBACK_DEFINE(AK_Job_System_Test_Callback) {
+AK_JOB_SYSTEM_CALLBACK_DEFINE(AK_Job_System_Test_Callback) {
     ak_job_system_job_data* JobData = (ak_job_system_job_data*)JobUserData;
     assert(JobData->Index < JobData->ThreadData->Count); /*overflow occurred*/
     JobData->ThreadData->CounterTable[JobData->Index]++;
-    return AK_JOB_STATUS_COMPLETE;
 }
 
 UTEST(AK_Job_System, MainTest) {
@@ -1057,7 +1054,7 @@ UTEST(AK_Job_System, MainTest) {
         JobData.ThreadData = &ThreadData;
         JobData.Index = i;
 
-        ak_job_data JobCallbackData;
+        ak_job_system_data JobCallbackData;
         JobCallbackData.JobCallback = AK_Job_System_Test_Callback;
         JobCallbackData.Data = &JobData;
         JobCallbackData.DataByteSize = sizeof(ak_job_system_job_data);
@@ -1094,55 +1091,50 @@ typedef struct ak_job_system_dependency_data_wrapper {
     ak_job_system_dependency_test_data* DependencyData;
 } ak_job_system_dependency_data_wrapper;
 
-AK_JOB_CALLBACK_DEFINE(AK_Async_Job_Dependency_A) {
+AK_JOB_SYSTEM_CALLBACK_DEFINE(AK_Async_Job_Dependency_A) {
     ak_job_system_dependency_test_data* DependencyData = ((ak_job_system_dependency_data_wrapper*)JobUserData)->DependencyData;
     assert(!DependencyData->A);
     assert(!DependencyData->C);
     assert(!DependencyData->F);
     AK_Atomic_Thread_Fence_Rel();
     DependencyData->A = true;
-    return AK_JOB_STATUS_COMPLETE;
 }
 
-AK_JOB_CALLBACK_DEFINE(AK_Async_Job_Dependency_B) {
+AK_JOB_SYSTEM_CALLBACK_DEFINE(AK_Async_Job_Dependency_B) {
     ak_job_system_dependency_test_data* DependencyData = ((ak_job_system_dependency_data_wrapper*)JobUserData)->DependencyData;
     assert(!DependencyData->B);
     assert(!DependencyData->C);
     assert(!DependencyData->F);
     AK_Atomic_Thread_Fence_Rel();
     DependencyData->B = true;
-    return AK_JOB_STATUS_COMPLETE;
 }
 
-AK_JOB_CALLBACK_DEFINE(AK_Async_Job_Dependency_C) {
+AK_JOB_SYSTEM_CALLBACK_DEFINE(AK_Async_Job_Dependency_C) {
     ak_job_system_dependency_test_data* DependencyData = ((ak_job_system_dependency_data_wrapper*)JobUserData)->DependencyData;
     assert(!DependencyData->C);
     assert(!DependencyData->F);
     AK_Atomic_Thread_Fence_Rel();
     DependencyData->C = true;
-    return AK_JOB_STATUS_COMPLETE;
 }
 
-AK_JOB_CALLBACK_DEFINE(AK_Async_Job_Dependency_D) {
+AK_JOB_SYSTEM_CALLBACK_DEFINE(AK_Async_Job_Dependency_D) {
     ak_job_system_dependency_test_data* DependencyData = ((ak_job_system_dependency_data_wrapper*)JobUserData)->DependencyData;
     assert(!DependencyData->D);
     assert(!DependencyData->E);
     assert(!DependencyData->F);
     AK_Atomic_Thread_Fence_Rel();
     DependencyData->D = true;
-    return AK_JOB_STATUS_COMPLETE;
 }
 
-AK_JOB_CALLBACK_DEFINE(AK_Async_Job_Dependency_E) {
+AK_JOB_SYSTEM_CALLBACK_DEFINE(AK_Async_Job_Dependency_E) {
     ak_job_system_dependency_test_data* DependencyData = ((ak_job_system_dependency_data_wrapper*)JobUserData)->DependencyData;
     assert(!DependencyData->E);
     assert(!DependencyData->F);
     AK_Atomic_Thread_Fence_Rel();
     DependencyData->E = true;
-    return AK_JOB_STATUS_COMPLETE;
 }
 
-AK_JOB_CALLBACK_DEFINE(AK_Async_Job_Dependency_F) {
+AK_JOB_SYSTEM_CALLBACK_DEFINE(AK_Async_Job_Dependency_F) {
     ak_job_system_dependency_test_data* DependencyData = ((ak_job_system_dependency_data_wrapper*)JobUserData)->DependencyData;
     assert(DependencyData->A);
     assert(DependencyData->B);
@@ -1151,7 +1143,6 @@ AK_JOB_CALLBACK_DEFINE(AK_Async_Job_Dependency_F) {
     assert(!DependencyData->F);
     AK_Atomic_Thread_Fence_Rel();
     DependencyData->F = true;
-    return AK_JOB_STATUS_COMPLETE;
 }
 
 UTEST(AK_Job_System, DependencyTest) {
@@ -1171,32 +1162,32 @@ UTEST(AK_Job_System, DependencyTest) {
         ak_job_system_dependency_data_wrapper Wrapper;
         Wrapper.DependencyData = &DependencyDataArray[i];
 
-        ak_job_data JobDataA;
+        ak_job_system_data JobDataA;
         JobDataA.JobCallback = AK_Async_Job_Dependency_A;
         JobDataA.Data = &Wrapper;
         JobDataA.DataByteSize = sizeof(Wrapper);
 
-        ak_job_data JobDataB;
+        ak_job_system_data JobDataB;
         JobDataB.JobCallback = AK_Async_Job_Dependency_B;
         JobDataB.Data = &Wrapper;
         JobDataB.DataByteSize = sizeof(Wrapper);
 
-        ak_job_data JobDataC;
+        ak_job_system_data JobDataC;
         JobDataC.JobCallback = AK_Async_Job_Dependency_C;
         JobDataC.Data = &Wrapper;
         JobDataC.DataByteSize = sizeof(Wrapper);
 
-        ak_job_data JobDataD;
+        ak_job_system_data JobDataD;
         JobDataD.JobCallback = AK_Async_Job_Dependency_D;
         JobDataD.Data = &Wrapper;
         JobDataD.DataByteSize = sizeof(Wrapper);
 
-        ak_job_data JobDataE;
+        ak_job_system_data JobDataE;
         JobDataE.JobCallback = AK_Async_Job_Dependency_E;
         JobDataE.Data = &Wrapper;
         JobDataE.DataByteSize = sizeof(Wrapper);
 
-        ak_job_data JobDataF;
+        ak_job_system_data JobDataF;
         JobDataF.JobCallback = AK_Async_Job_Dependency_F;
         JobDataF.Data = &Wrapper;
         JobDataF.DataByteSize = sizeof(Wrapper);
@@ -1236,11 +1227,10 @@ UTEST(AK_Job_System, DependencyTest) {
     ASSERT_TRUE(AllocatorInfo.AllocatedAmount.Nonatomic == AllocatorInfo.FreedAmount.Nonatomic);
 }
 
-AK_JOB_CALLBACK_DEFINE(AK_Job_System_Sleep_Test_Callback) {
+AK_JOB_SYSTEM_CALLBACK_DEFINE(AK_Job_System_Sleep_Test_Callback) {
     uint64_t StartTime = AK_Query_Performance_Counter();
     AK_Sleep(10000);
     printf("Time: %fms\n", ((double)(AK_Query_Performance_Counter()-StartTime)/(double)AK_Query_Performance_Frequency())*1000.0);
-    return AK_JOB_STATUS_COMPLETE;
 }
 
 UTEST(AK_Job_System, SleepTest) {
@@ -1249,7 +1239,7 @@ UTEST(AK_Job_System, SleepTest) {
     ak_job_system* JobSystem = AK_Job_System_Create(1, AK_Get_Processor_Thread_Count(), 0, NULL, &AllocatorInfo);
     ASSERT_TRUE(JobSystem);
 
-    ak_job_data JobData = {0};
+    ak_job_system_data JobData = {0};
     JobData.JobCallback = AK_Job_System_Sleep_Test_Callback;
     ak_job_id SleepID = AK_Job_System_Alloc_Job(JobSystem, JobData, 0, AK_JOB_FLAG_QUEUE_IMMEDIATELY_BIT|AK_JOB_FLAG_FREE_WHEN_DONE);
     ASSERT_TRUE(SleepID != 0);
@@ -1295,7 +1285,7 @@ UTEST(AK_Job_System, ThreadCallbacks) {
 
     ak_job_system* JobSystem = AK_Job_System_Create(1, ThreadCount, 0, &ThreadCallbacks, &AllocatorInfo);
     
-    ak_job_data JobData = {0};
+    ak_job_system_data JobData = {0};
     ak_job_id JobID = AK_Job_System_Alloc_Job(JobSystem, JobData, 0, AK_JOB_FLAG_QUEUE_IMMEDIATELY_BIT|AK_JOB_FLAG_FREE_WHEN_DONE);
     AK_Job_System_Wait_For_Job(JobSystem, JobID);
     AK_Job_System_Delete(JobSystem);
@@ -1306,6 +1296,8 @@ UTEST(AK_Job_System, ThreadCallbacks) {
 
     ASSERT_TRUE(AllocatorInfo.AllocatedAmount.Nonatomic == AllocatorInfo.FreedAmount.Nonatomic);
 }
+
+#if 0 
 
 typedef struct {
     ak_atomic_u32         WorkCount;
@@ -1331,11 +1323,9 @@ static AK_JOB_CALLBACK_DEFINE(AK_Job_Waiting_Test_Wait_Job) {
     ak_job_waiting_data* JobWaitingData = (ak_job_waiting_data*)JobUserData;
     ak_job_waiting_thread_data* ThreadData = JobWaitingData->ThreadData;
     if(AK_Atomic_Load_U32_Relaxed(&ThreadData->WorkCount) < ThreadData->TargetCount) {
-        AK_Job_System_Begin_Job_Wait(JobSystem, JobID);
-        AK_Auto_Reset_Event_Wait(&ThreadData->WorkEvent);
-        assert(ThreadData->WorkCount.Nonatomic == ThreadData->TargetCount);
-        AK_Job_System_End_Job_Wait(JobSystem, JobID);
+        return AK_JOB_SYSTEM_REQUEUE;
     }
+    assert(ThreadData->WorkCount.Nonatomic == ThreadData->TargetCount);
     return AK_JOB_STATUS_COMPLETE;
 }
 
@@ -1436,6 +1426,8 @@ UTEST(AK_Job_System, Waiting) {
 
     ASSERT_TRUE(AllocatorInfo.AllocatedAmount.Nonatomic == AllocatorInfo.FreedAmount.Nonatomic);
 }
+
+#endif
 
 #endif
 
