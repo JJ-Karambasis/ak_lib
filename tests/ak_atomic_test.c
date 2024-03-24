@@ -1460,7 +1460,7 @@ void AK_Job_System_Test_Free_Memory(void* Memory, void* UserData) {
     }
 }
 
-#define AK_JOB_SYSTEM_MALLOC(size, user_data) AK_Job_System_Test_Allocate_Memory(size, user_data)
-#define AK_JOB_SYSTEM_FREE(memory, user_data) AK_Job_System_Test_Free_Memory(memory, user_data)
+#define AK_JOB_MALLOC(size, user_data) AK_Job_System_Test_Allocate_Memory(size, user_data)
+#define AK_JOB_FREE(memory, user_data) AK_Job_System_Test_Free_Memory(memory, user_data)
 #define AK_ATOMIC_IMPLEMENTATION
 #include <ak_atomic.h>
