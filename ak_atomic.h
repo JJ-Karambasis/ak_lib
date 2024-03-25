@@ -429,6 +429,9 @@ AKATOMICDEF uint32_t AK_Async_Queue_Index32_Dequeue(ak_async_queue_index32* Queu
 AKATOMICDEF bool     AK_Async_Queue_Index32_Alloc(ak_async_queue_index32* QueueIndex, uint32_t Capacity, void* AllocUserData);
 AKATOMICDEF void     AK_Async_Queue_Index32_Free(ak_async_queue_index32* QueueIndex);
 
+#define AK_Async_Queue_Index32_Capacity(queue) ((queue)->Capacity)
+
+
 #endif
 
 #ifndef AK_DISABLE_ASYNC_SLOT_MAP
@@ -483,9 +486,9 @@ typedef enum ak_job_status {
     AK_JOB_STATUS_REQUEUE
 } ak_job_status;
 
-#define AK_JOB_THREAD_BEGIN_DEFINE(name)  void name(ak_job_system* JobSystem, ak_thread* Thread, void* UserData)
-#define AK_JOB_THREAD_UPDATE_DEFINE(name) void name(ak_job_system* JobSystem, ak_thread* Thread, void* UserData)
-#define AK_JOB_THREAD_END_DEFINE(name)    void name(ak_job_system* JobSystem, ak_thread* Thread, void* UserData)
+#define AK_JOB_THREAD_BEGIN_DEFINE(name)  void name(ak_thread* Thread, void* UserData)
+#define AK_JOB_THREAD_UPDATE_DEFINE(name) void name(ak_thread* Thread, void* UserData)
+#define AK_JOB_THREAD_END_DEFINE(name)    void name(ak_thread* Thread, void* UserData)
 
 typedef AK_JOB_THREAD_BEGIN_DEFINE(ak_job_thread_begin_func);
 typedef AK_JOB_THREAD_UPDATE_DEFINE(ak_job_thread_update_func);
@@ -506,7 +509,7 @@ typedef struct ak_job_thread_callbacks {
 } ak_job_thread_callbacks;
 
 #define AK_JOB_SYSTEM_CALLBACK_DEFINE(name)   void          name(ak_job_system* JobSystem, ak_job_id JobID, void* JobUserData)
-#define AK_JOB_QUEUE_CALLBACK_DEFINE(name)    ak_job_status name(ak_job_system* JobSystem, ak_job_id JobID, void* JobUserData)
+#define AK_JOB_QUEUE_CALLBACK_DEFINE(name)    ak_job_status name(ak_job_queue* JobQueue, ak_job_id JobID, void* JobUserData)
 
 typedef AK_JOB_SYSTEM_CALLBACK_DEFINE(ak_job_system_callback_func);
 typedef AK_JOB_QUEUE_CALLBACK_DEFINE(ak_job_queue_callback_func);
@@ -2407,7 +2410,7 @@ typedef struct {
   assertion if you need more space*/
 AK_ATOMIC__COMPILE_TIME_ASSERT(sizeof(ak__job) == 128);
 
-static void* AK_Job_System__Malloc(size_t Size, void* MallocUserData) {
+static void* AK_Job__Malloc(size_t Size, void* MallocUserData) {
     size_t Offset = AK_JOB__ALIGNMENT - 1 + sizeof(void*);
     void* P1 = AK_JOB_MALLOC(Size+Offset, MallocUserData);
     if(!P1) return NULL;
@@ -2418,7 +2421,7 @@ static void* AK_Job_System__Malloc(size_t Size, void* MallocUserData) {
     return P2;
 }
 
-static void AK_Job_System__Free(void* Memory, void* MallocUserData) {
+static void AK_Job__Free(void* Memory, void* MallocUserData) {
     if(Memory) {
         void** P2 = (void**)Memory;
         AK_JOB_FREE(P2[-1], MallocUserData);
@@ -2437,7 +2440,7 @@ static void AK_Job__Allocate_Data(ak__job* Job, void* Bytes, size_t ByteSize, vo
         Data = Job->UserData;
         Job->JobInfoFlags &= ~AK__JOB_INFO_FLAG_HEAP_ALLOCATED_BIT;
     } else {
-        void* SlowData = AK_Job_System__Malloc(ByteSize, AllocUserData);
+        void* SlowData = AK_Job__Malloc(ByteSize, AllocUserData);
         AK_JOB_ASSERT(SlowData);
 
         /*Copy pointer address to user data*/
@@ -2453,7 +2456,7 @@ static void AK_Job__Allocate_Data(ak__job* Job, void* Bytes, size_t ByteSize, vo
 static void AK_Job__Free_Data(ak__job* Job, void* AllocUserData) {
     if(Job->JobInfoFlags & AK__JOB_INFO_FLAG_HEAP_ALLOCATED_BIT) {
         void* Ptr = AK_Job__Get_User_Data_Heap(Job->UserData);
-        AK_Job_System__Free(Ptr, AllocUserData);
+        AK_Job__Free(Ptr, AllocUserData);
         Job->JobInfoFlags &= ~AK__JOB_INFO_FLAG_HEAP_ALLOCATED_BIT;
     }
 }
@@ -2499,6 +2502,10 @@ static ak__job* AK_Job__Storage_Alloc(ak__job_storage* JobStorage) {
     ak__job* Job = JobStorage->Jobs+FreeIndex;
     AK_JOB_ASSERT(Job->Index == FreeIndex); /*Invalid indices!*/
     return Job;  
+}
+
+static uint32_t AK_Job__Storage_Capacity(ak__job_storage* JobStorage) {
+    return JobStorage->FreeJobIndices.Capacity;
 }
 
 static void AK_Job__Storage_Free(ak__job_storage* JobStorage, ak_job_id JobID, void* MallocUserData) {
@@ -2576,14 +2583,12 @@ static bool AK__Job_Next_Dependency(ak__job_dependency_iter* Iter, ak__job_depen
     return true;
 }
 
-typedef struct ak__job_system_thread ak__job_system_thread;
 typedef struct ak__job_system_queue  ak__job_system_queue;
 
-struct ak__job_system_thread {
+typedef struct {
     ak_job_system*         JobSystem;
     ak_thread              Thread;
-    ak__job_system_thread* Next;
-};
+} ak__job_system_thread;
 
 struct ak__job_system_queue {
     ak_atomic_u32         BottomIndex;
@@ -2595,15 +2600,13 @@ struct ak__job_system_queue {
 
 struct ak_job_system {
     /*System information*/
-    void*                 MallocUserData;
-    uint32_t              MaxJobCount;
-    ak_tls                TLS;
+    void*  MallocUserData;
+    ak_tls TLS;
 
     /*Job information*/
     ak__job_storage JobStorage;
-    ak_lw_semaphore JobSemaphore;
-
     ak__job_dependencies Dependencies;
+    ak_lw_semaphore JobSemaphore;
 
     /*Threads and queues*/
     ak_job_thread_callbacks ThreadCallbacks;
@@ -2615,8 +2618,8 @@ struct ak_job_system {
 };
 
 ak__job_system_queue* AK_Job_System__Create_Queue(ak_job_system* JobSystem, ak_atomic_ptr* TopQueuePtr) {
-    size_t AllocationSize = sizeof(ak__job_system_queue)+(sizeof(ak__job*)*JobSystem->MaxJobCount);
-    ak__job_system_queue* JobQueue = (ak__job_system_queue*)AK_Job_System__Malloc(AllocationSize, JobSystem->MallocUserData);
+    size_t AllocationSize = sizeof(ak__job_system_queue)+(sizeof(ak__job*)*AK_Job__Storage_Capacity(&JobSystem->JobStorage));
+    ak__job_system_queue* JobQueue = (ak__job_system_queue*)AK_Job__Malloc(AllocationSize, JobSystem->MallocUserData);
     AK_JOB_ASSERT(JobQueue);
     if(!JobQueue) return NULL;
     AK_JOB_MEMSET(JobQueue, 0, AllocationSize);
@@ -2680,7 +2683,7 @@ static ak__job* AK_Job_System__Steal_Job(ak_job_system* JobSystem, ak__job_syste
 
     ak__job* Result = NULL;
     if(Top < Bottom) {
-        Result = JobQueue->Queue[Top % JobSystem->MaxJobCount];
+        Result = JobQueue->Queue[Top % AK_Job__Storage_Capacity(&JobSystem->JobStorage)];
         if(!AK_Atomic_Compare_Exchange_Bool_U32_Explicit(&JobQueue->TopIndex, (uint32_t)Top, (uint32_t)(Top+1), AK_ATOMIC_MEMORY_ORDER_ACQ_REL, AK_ATOMIC_MEMORY_ORDER_RELAXED)) {
             Result = NULL;
         }
@@ -2700,7 +2703,7 @@ static ak__job* AK_Job_System__Pop_Job(ak_job_system* JobSystem, ak__job_system_
 
     ak__job* Result = NULL;
     if(Top <= Bottom) {
-        Result = JobQueue->Queue[Bottom % JobSystem->MaxJobCount];
+        Result = JobQueue->Queue[Bottom % AK_Job__Storage_Capacity(&JobSystem->JobStorage)];
         if(Top == Bottom) {
             if(!AK_Atomic_Compare_Exchange_Bool_U32_Explicit(&JobQueue->TopIndex, (uint32_t)Top, (uint32_t)(Top+1), AK_ATOMIC_MEMORY_ORDER_ACQ_REL, AK_ATOMIC_MEMORY_ORDER_RELAXED)) {
                 Result = NULL;
@@ -2716,10 +2719,10 @@ static ak__job* AK_Job_System__Pop_Job(ak_job_system* JobSystem, ak__job_system_
 static void AK_Job_System__Push_Job(ak_job_system* JobSystem, ak__job_system_queue* JobQueue, ak__job* Job) {
     int32_t Bottom = (int32_t)AK_Atomic_Load_U32_Relaxed(&JobQueue->BottomIndex);
     int32_t Top = (int32_t)AK_Atomic_Load_U32(&JobQueue->TopIndex, AK_ATOMIC_MEMORY_ORDER_ACQUIRE);
-    if(((int32_t)JobSystem->MaxJobCount-1) < (Bottom-Top)) {
+    if(((int32_t)AK_Job__Storage_Capacity(&JobSystem->JobStorage)-1) < (Bottom-Top)) {
         AK_JOB_ASSERT(false);
     }
-    JobQueue->Queue[Bottom % JobSystem->MaxJobCount] = Job;
+    JobQueue->Queue[Bottom % AK_Job__Storage_Capacity(&JobSystem->JobStorage)] = Job;
     AK_Atomic_Thread_Fence_Seq_Cst();
     AK_Atomic_Compiler_Fence_Seq_Cst();
     AK_Atomic_Store_U32(&JobQueue->BottomIndex, (uint32_t)(Bottom+1), AK_ATOMIC_MEMORY_ORDER_RELEASE);
@@ -2857,13 +2860,13 @@ static void AK_Job_System__Run(ak_job_system* JobSystem, ak__job_system_thread* 
         }
 
         if(ThreadCallbacks->JobThreadUpdate)
-            ThreadCallbacks->JobThreadUpdate(JobSystem, &JobThread->Thread, ThreadCallbacks->UserData);
+            ThreadCallbacks->JobThreadUpdate(&JobThread->Thread, ThreadCallbacks->UserData);
     }
 
     /*Cleanup remaining jobs*/
     while(AK_Job_System__Process_Next_Job(JobSystem, JobQueue)) {
         if(ThreadCallbacks->JobThreadUpdate)
-            ThreadCallbacks->JobThreadUpdate(JobSystem, &JobThread->Thread, ThreadCallbacks->UserData);
+            ThreadCallbacks->JobThreadUpdate(&JobThread->Thread, ThreadCallbacks->UserData);
     }
 }
 
@@ -2875,15 +2878,15 @@ static void AK_Job_System__Main(ak__job_system_thread* JobThread) {
     AK_TLS_Set(&JobSystem->TLS, JobQueue);
 
     if(ThreadCallbacks->JobThreadBegin)
-        ThreadCallbacks->JobThreadBegin(JobSystem, &JobThread->Thread, ThreadCallbacks->UserData);
+        ThreadCallbacks->JobThreadBegin(&JobThread->Thread, ThreadCallbacks->UserData);
     
     if(ThreadCallbacks->JobThreadUpdate)
-        ThreadCallbacks->JobThreadUpdate(JobSystem, &JobThread->Thread, ThreadCallbacks->UserData);
+        ThreadCallbacks->JobThreadUpdate(&JobThread->Thread, ThreadCallbacks->UserData);
 
     AK_Job_System__Run(JobSystem, JobThread, JobQueue);
 
     if(ThreadCallbacks->JobThreadEnd)
-        ThreadCallbacks->JobThreadEnd(JobSystem, &JobThread->Thread, ThreadCallbacks->UserData);
+        ThreadCallbacks->JobThreadEnd(&JobThread->Thread, ThreadCallbacks->UserData);
 }
 
 static AK_THREAD_CALLBACK_DEFINE(AK_Job_System__Thread_Callback) {
@@ -2903,7 +2906,7 @@ AKATOMICDEF ak_job_system* AK_Job_System_Create(uint32_t MaxJobCount, uint32_t T
     AllocationSize += MaxDependencyCount*sizeof(ak__job_dependency); /*Space for the dependencies*/
 
     /*Allocate and clear all the memory*/
-    ak_job_system* JobSystem = (ak_job_system*)AK_Job_System__Malloc(AllocationSize, MallocUserData);
+    ak_job_system* JobSystem = (ak_job_system*)AK_Job__Malloc(AllocationSize, MallocUserData);
     AK_JOB_ASSERT(JobSystem);
 
     if(!JobSystem) return NULL;
@@ -2912,7 +2915,6 @@ AKATOMICDEF ak_job_system* AK_Job_System_Create(uint32_t MaxJobCount, uint32_t T
 
     /*System information*/
     JobSystem->MallocUserData     = MallocUserData;
-    JobSystem->MaxJobCount        = MaxJobCount;
     AK_TLS_Create(&JobSystem->TLS);
     AK_LW_Semaphore_Create(&JobSystem->JobSemaphore, 0);
 
@@ -2971,17 +2973,17 @@ AKATOMICDEF void AK_Job_System_Delete(ak_job_system* JobSystem) {
     while(Queue) {
         ak__job_system_queue* QueueToDelete = Queue;
         Queue = Queue->Next;
-        AK_Job_System__Free(QueueToDelete, JobSystem->MallocUserData);
+        AK_Job__Free(QueueToDelete, JobSystem->MallocUserData);
     }
     Queue = (ak__job_system_queue*)AK_Atomic_Load_Ptr_Relaxed(&JobSystem->ThreadRunnerQueueTopPtr);
     while(Queue) {
         ak__job_system_queue* QueueToDelete = Queue;
         Queue = Queue->Next;
-        AK_Job_System__Free(QueueToDelete, JobSystem->MallocUserData);
+        AK_Job__Free(QueueToDelete, JobSystem->MallocUserData);
     }
     AK_LW_Semaphore_Delete(&JobSystem->JobSemaphore);
     AK_TLS_Delete(&JobSystem->TLS);
-    AK_Job_System__Free(JobSystem, JobSystem->MallocUserData);
+    AK_Job__Free(JobSystem, JobSystem->MallocUserData);
 }
 
 AKATOMICDEF ak_job_id AK_Job_System_Alloc_Job(ak_job_system* JobSystem, ak_job_system_data JobData, ak_job_id ParentID, ak_job_flags Flags) {
@@ -3047,12 +3049,293 @@ AKATOMICDEF void AK_Job_System_Add_Dependency(ak_job_system* JobSystem, ak_job_i
     AK_Job__Add_Dependency(&JobSystem->Dependencies, Job, DependencyJob);
 }
 
+typedef struct {
+    ak_job_queue*         JobQueue;
+    ak_thread             Thread;
+} ak__job_queue_thread;
+
 struct ak_job_queue {
+    /*System information*/
     void*                  MallocUserData;
-    uint32_t               MaxJobCount;
-    ak_async_stack_index32 FreeJobIndices;
-    ak__job*               Jobs;
+    ak_async_queue_index32 Queue;
+
+    /*Job information*/
+    ak__job_storage        JobStorage;
+    ak__job_dependencies   Dependencies;
+    ak_lw_semaphore        JobSemaphore;
+
+    /*Threads*/
+    ak_job_thread_callbacks ThreadCallbacks;
+    uint32_t                ThreadCount;
+    ak__job_queue_thread*   Threads;
+    ak_atomic_u32           IsRunning;
 };
+
+static void AK_Job_Queue__Push_Job(ak_job_queue* JobQueue, ak__job* Job) {
+    AK_Async_Queue_Index32_Enqueue(&JobQueue->Queue, Job->Index);
+}
+
+static void AK_Job_Queue__Requeue_Job(ak_job_queue* JobQueue, ak__job* Job) {
+    AK_Job_Queue__Push_Job(JobQueue, Job);
+    AK_LW_Semaphore_Increment(&JobQueue->JobSemaphore);
+}
+
+static void AK_Job_Queue__Add_Job(ak_job_queue* JobQueue, ak__job* Job) {
+    AK_Atomic_Increment_U32(&Job->PendingJobs, AK_ATOMIC_MEMORY_ORDER_ACQUIRE);
+    if(Job->ParentJob) {
+        /*Only increment the parent once, and it should not be processing yet*/
+        AK_Atomic_Increment_U32(&Job->ParentJob->PendingJobs, AK_ATOMIC_MEMORY_ORDER_ACQUIRE);
+    }
+
+    if(AK_Atomic_Compare_Exchange_Bool_U32(&Job->IsProcessing, false, true, AK_ATOMIC_MEMORY_ORDER_ACQ_REL)) {
+        AK_Job_Queue__Requeue_Job(JobQueue, Job);
+    } else {
+        AK_JOB_ASSERT(false); /*Cannot submit an already submitted job!*/
+    }
+}
+
+static void AK_Job_Queue__Finish_Job(ak_job_queue* JobQueue, ak__job* Job) {
+    uint32_t IsProcessing = AK_Atomic_Load_U32_Relaxed(&Job->IsProcessing);
+    if(AK_Atomic_Decrement_U32_Relaxed(&Job->PendingJobs) == 0 && IsProcessing) {
+        ak__job_dependency_iter DependencyIter = AK__Job_Dependency_Begin_Iter(Job);
+        while(AK__Job_Next_Dependency(&DependencyIter, &JobQueue->Dependencies)) {
+            if(DependencyIter.ProcessJob) {
+                AK_Job_Queue__Add_Job(JobQueue, DependencyIter.Job);
+            }
+        }
+
+        if(Job->ParentJob) {
+            AK_Job_Queue__Finish_Job(JobQueue, Job->ParentJob);
+        }
+
+        AK_Atomic_Store_Ptr(&Job->DependencyList, NULL, AK_ATOMIC_MEMORY_ORDER_RELEASE);
+        ak_job_id JobID = AK__Job_Make_ID(Job);
+
+        AK_Atomic_Store_U32(&Job->IsProcessing, false, AK_ATOMIC_MEMORY_ORDER_RELEASE);
+        if(Job->JobInfoFlags & AK__JOB_INFO_FLAG_FREE_WHEN_DONE_BIT)
+            AK_Job__Storage_Free(&JobQueue->JobStorage, JobID, JobQueue->MallocUserData);
+    }
+}
+
+static void AK_Job_Queue__Process_Job(ak_job_queue* JobQueue, ak__job* Job) {
+    ak_job_id JobID = AK__Job_Make_ID(Job);
+
+    ak_job_status JobStatus = AK_JOB_STATUS_COMPLETE;
+    if(Job->JobCallback) {
+        void* UserData = 
+            ((Job->JobInfoFlags & AK__JOB_INFO_FLAG_HEAP_ALLOCATED_BIT) ? 
+                AK_Job__Get_User_Data_Heap(Job->UserData) : 
+                (void*)Job->UserData);
+        ak_job_queue_callback_func* JobCallback = (ak_job_queue_callback_func*)Job->JobCallback;
+        JobStatus = JobCallback(JobQueue, JobID, UserData);
+    }
+
+    switch(JobStatus) {
+        case AK_JOB_STATUS_COMPLETE: {
+            AK_Job_Queue__Finish_Job(JobQueue, Job);
+        } break;
+
+        case AK_JOB_STATUS_REQUEUE: {
+            AK_Job_Queue__Requeue_Job(JobQueue, Job);
+        } break;
+    }
+}
+
+static ak__job* AK_Job_Queue__Get_Next_Job(ak_job_queue* JobQueue) {
+    uint32_t Index = AK_Async_Queue_Index32_Dequeue(&JobQueue->Queue);
+    if(Index == AK_ASYNC_QUEUE_INDEX32_INVALID) {
+        return NULL;
+    }
+
+    AK_JOB_ASSERT(Index < AK_Async_Queue_Index32_Capacity(&JobQueue->Queue));
+    return JobQueue->JobStorage.Jobs + Index;
+}
+
+static bool AK_Job_Queue__Process_Next_Job(ak_job_queue* JobQueue) {
+    ak__job* Job = AK_Job_Queue__Get_Next_Job(JobQueue);
+    if(Job) {
+        AK_Job_Queue__Process_Job(JobQueue, Job);
+        return true;
+    }
+    return false;
+}
+
+static void AK_Job_Queue__Run(ak_job_queue* JobQueue, ak__job_queue_thread* JobThread) {
+    ak_job_thread_callbacks* ThreadCallbacks = &JobQueue->ThreadCallbacks;
+
+    while(AK_Atomic_Load_U32_Relaxed(&JobQueue->IsRunning)) {
+        if(!AK_Job_Queue__Process_Next_Job(JobQueue)) {
+            AK_LW_Semaphore_Decrement(&JobQueue->JobSemaphore);
+        }
+
+        if(ThreadCallbacks->JobThreadUpdate)
+            ThreadCallbacks->JobThreadUpdate(&JobThread->Thread, ThreadCallbacks->UserData);
+    }
+
+    /*Cleanup remaining jobs*/
+    while(AK_Job_Queue__Process_Next_Job(JobQueue)) {
+        if(ThreadCallbacks->JobThreadUpdate)
+            ThreadCallbacks->JobThreadUpdate(&JobThread->Thread, ThreadCallbacks->UserData);
+    }
+}
+
+static void AK_Job_Queue__Main(ak__job_queue_thread* JobThread) {
+    ak_job_queue* JobQueue = JobThread->JobQueue;
+    ak_job_thread_callbacks* ThreadCallbacks = &JobQueue->ThreadCallbacks;
+
+    if(ThreadCallbacks->JobThreadBegin)
+        ThreadCallbacks->JobThreadBegin(&JobThread->Thread, ThreadCallbacks->UserData);
+    
+    if(ThreadCallbacks->JobThreadUpdate)
+        ThreadCallbacks->JobThreadUpdate(&JobThread->Thread, ThreadCallbacks->UserData);
+
+    AK_Job_Queue__Run(JobQueue, JobThread);
+
+    if(ThreadCallbacks->JobThreadEnd)
+        ThreadCallbacks->JobThreadEnd(&JobThread->Thread, ThreadCallbacks->UserData);
+}
+
+static AK_THREAD_CALLBACK_DEFINE(AK_Job_Queue__Thread_Callback) {
+    ak__job_queue_thread* JobThread = (ak__job_queue_thread*)UserData;
+    AK_Job_Queue__Main(JobThread);
+    return 0;
+}
+
+AKATOMICDEF ak_job_queue* AK_Job_Queue_Create(uint32_t MaxJobCount, uint32_t ThreadCount, uint32_t MaxDependencyCount, const ak_job_thread_callbacks* ThreadCallbacks, void* MallocUserData) {
+    /*Get the allocation size. Want to avoid many small allocations so batch them together*/
+    size_t AllocationSize = sizeof(ak_job_queue);
+    AllocationSize += MaxJobCount*sizeof(uint32_t); /*Space for the job free indices*/
+    AllocationSize += MaxJobCount*sizeof(ak__job); /*Space for the jobs*/
+    AllocationSize += MaxJobCount*sizeof(uint64_t); /*Space for the async queue*/
+    AllocationSize += ThreadCount*sizeof(ak__job_queue_thread); /*Space for the threads*/
+    AllocationSize += MaxDependencyCount*sizeof(uint32_t); /*Space for the job free dependency indices*/
+    AllocationSize += MaxDependencyCount*sizeof(ak__job_dependency); /*Space for the dependencies*/
+    
+    /*Allocate and clear all the memory*/
+    ak_job_queue* JobQueue = (ak_job_queue*)AK_Job__Malloc(AllocationSize, MallocUserData);
+    AK_JOB_ASSERT(JobQueue);
+
+    if(!JobQueue) return NULL;
+
+    AK_JOB_MEMSET(JobQueue, 0, AllocationSize);
+
+    JobQueue->MallocUserData = MallocUserData;
+    AK_LW_Semaphore_Create(&JobQueue->JobSemaphore, 0);
+    uint32_t* FreeJobIndices = (uint32_t*)(JobQueue+1);
+    ak__job* Jobs = (ak__job*)(FreeJobIndices+MaxJobCount);
+    AK_Job__Storage_Init(&JobQueue->JobStorage, FreeJobIndices, Jobs, MaxJobCount);
+
+    uint64_t* QueueIndices = (uint64_t*)(Jobs+MaxJobCount);
+    AK_Async_Queue_Index32_Init_Raw(&JobQueue->Queue, QueueIndices, MaxJobCount);
+
+    JobQueue->ThreadCount = ThreadCount;
+    JobQueue->Threads = (ak__job_queue_thread*)(QueueIndices+MaxJobCount);
+
+    if(MaxDependencyCount) {
+        uint32_t* FreeDependencyIndices = (uint32_t*)(JobQueue->Threads + ThreadCount);
+        ak__job_dependency* JobDependencies = (ak__job_dependency*)(FreeDependencyIndices+MaxDependencyCount); 
+        AK_Job__Init_Dependencies(&JobQueue->Dependencies, FreeDependencyIndices, JobDependencies, MaxDependencyCount);
+    }
+
+    /*Thread information*/
+    if(ThreadCallbacks) {
+        JobQueue->ThreadCallbacks = *ThreadCallbacks;
+    }
+
+    AK_Atomic_Store_U32_Relaxed(&JobQueue->IsRunning, true);
+
+    uint32_t i;
+    for(i = 0; i < ThreadCount; i++) {
+        ak__job_queue_thread* Thread = JobQueue->Threads + i;
+        Thread->JobQueue = JobQueue;
+        if(!AK_Thread_Create(&Thread->Thread, AK_Job_Queue__Thread_Callback, Thread)) {
+            //todo: cleanup resources
+            return NULL;
+        }
+    }
+
+    /*Validate that our memory is correct*/
+    return JobQueue;
+}
+
+AKATOMICDEF void AK_Job_Queue_Delete(ak_job_queue* JobQueue) {
+    AK_Atomic_Store_U32_Relaxed(&JobQueue->IsRunning, false);
+    AK_Atomic_Thread_Fence_Seq_Cst();
+    AK_Atomic_Compiler_Fence_Seq_Cst();
+
+    /*Set all the threads status to IsRunning false before we increment the semaphore*/
+    AK_LW_Semaphore_Add(&JobQueue->JobSemaphore, (int32_t)JobQueue->ThreadCount);
+
+    /*Wait for the threads to finish and delete them*/
+    uint32_t ThreadIndex;
+    for(ThreadIndex = 0; ThreadIndex < JobQueue->ThreadCount; ThreadIndex++) {
+        ak__job_queue_thread* Thread = JobQueue->Threads + ThreadIndex;
+        AK_Thread_Delete(&Thread->Thread);
+    }
+    AK_LW_Semaphore_Delete(&JobQueue->JobSemaphore);
+    AK_Job__Free(JobQueue, JobQueue->MallocUserData);
+}
+
+AKATOMICDEF ak_job_id AK_Job_Queue_Alloc_Job(ak_job_queue* JobQueue, ak_job_queue_data JobData, ak_job_id ParentID, ak_job_flags Flags) {
+    ak__job* Job = AK_Job__Storage_Alloc(&JobQueue->JobStorage);
+
+    Job->JobCallback = (void*)JobData.JobCallback;
+    AK_Job__Allocate_Data(Job, JobData.Data, JobData.DataByteSize, JobQueue->MallocUserData);
+    Job->ParentJob = AK_Job__Storage_Get(&JobQueue->JobStorage, ParentID);
+
+    if(Flags & AK_JOB_FLAG_FREE_WHEN_DONE) {
+        Job->JobInfoFlags |= AK__JOB_INFO_FLAG_FREE_WHEN_DONE_BIT;
+    } else {
+        Job->JobInfoFlags &= ~AK__JOB_INFO_FLAG_FREE_WHEN_DONE_BIT;
+    }
+
+
+    AK_JOB_ASSERT(AK_Atomic_Load_U32(&Job->PendingDependencies, AK_ATOMIC_MEMORY_ORDER_ACQUIRE) == 0);
+    AK_JOB_ASSERT(AK_Atomic_Load_Ptr(&Job->DependencyList, AK_ATOMIC_MEMORY_ORDER_ACQUIRE) == NULL);
+    /*Pending jobs should be 0 for the job*/    
+    AK_JOB_ASSERT(AK_Atomic_Load_U32(&Job->PendingJobs, AK_ATOMIC_MEMORY_ORDER_ACQUIRE) == 0);
+    AK_JOB_ASSERT(!AK_Atomic_Load_U32_Relaxed(&Job->IsProcessing));
+
+    ak_job_id JobID = AK__Job_Make_ID(Job);
+    if(Flags & AK_JOB_FLAG_QUEUE_IMMEDIATELY_BIT) {
+        AK_Job_Queue_Add_Job(JobQueue, JobID);
+    }
+    return JobID;
+}
+
+AKATOMICDEF ak_job_id AK_Job_Queue_Alloc_Empty_Job(ak_job_queue* JobQueue, ak_job_flags Flags) {
+    ak_job_queue_data JobData = {0};
+    return AK_Job_Queue_Alloc_Job(JobQueue, JobData, 0, Flags);
+}
+
+AKATOMICDEF void AK_Job_Queue_Free_Job(ak_job_queue* JobQueue, ak_job_id JobID) {
+    AK_Job__Storage_Free(&JobQueue->JobStorage, JobID, JobQueue->MallocUserData);
+}
+
+AKATOMICDEF void AK_Job_Queue_Add_Job(ak_job_queue* JobQueue, ak_job_id JobID) {
+    ak__job* Job = AK_Job__Storage_Get(&JobQueue->JobStorage, JobID);
+    if(Job) {
+        AK_Job_Queue__Add_Job(JobQueue, Job);
+    }
+}
+
+AKATOMICDEF void AK_Job_Queue_Wait_For_Job(ak_job_queue* JobQueue, ak_job_id JobID) {
+    ak__job* Job = AK_Job__Storage_Get(&JobQueue->JobStorage, JobID);
+    while(Job && AK_Atomic_Load_U32_Relaxed(&Job->IsProcessing)) {
+        AK_Job_Queue__Process_Next_Job(JobQueue);
+    }
+}
+
+AKATOMICDEF void AK_Job_Queue_Add_Dependency(ak_job_queue* JobQueue, ak_job_id JobID, ak_job_id DependencyJobID) {
+    ak__job* Job = AK_Job__Storage_Get(&JobQueue->JobStorage, JobID);
+    ak__job* DependencyJob = AK_Job__Storage_Get(&JobQueue->JobStorage, DependencyJobID);
+    if(!Job || !DependencyJob) {
+        AK_JOB_ASSERT(false);
+        return;
+    }
+
+    AK_Job__Add_Dependency(&JobQueue->Dependencies, Job, DependencyJob);
+}
 
 #endif
 
