@@ -265,6 +265,10 @@ typedef struct ak_condition_variable {
     CONDITION_VARIABLE Variable;
 } ak_condition_variable;
 
+typedef struct ak_event {
+    HANDLE Handle;
+} ak_event;
+
 typedef struct ak_tls {
     DWORD Index;
 } ak_tls;
@@ -338,6 +342,12 @@ AKATOMICDEF void AK_Condition_Variable_Delete(ak_condition_variable* ConditionVa
 AKATOMICDEF void AK_Condition_Variable_Wait(ak_condition_variable* ConditionVariable, ak_mutex* Mutex);
 AKATOMICDEF void AK_Condition_Variable_Wake_One(ak_condition_variable* ConditionVariable);
 AKATOMICDEF void AK_Condition_Variable_Wake_All(ak_condition_variable* ConditionVariable);
+
+AKATOMICDEF bool AK_Event_Create(ak_event* Event);
+AKATOMICDEF void AK_Event_Delete(ak_event* Event);
+AKATOMICDEF void AK_Event_Signal(ak_event* Event);
+AKATOMICDEF void AK_Event_Wait(ak_event* Event);
+AKATOMICDEF void AK_Event_Reset(ak_event* Event);
 
 AKATOMICDEF bool  AK_TLS_Create(ak_tls* TLS);
 AKATOMICDEF void  AK_TLS_Delete(ak_tls* TLS);
@@ -1730,6 +1740,27 @@ AKATOMICDEF void AK_Condition_Variable_Wake_One(ak_condition_variable* Condition
 
 AKATOMICDEF void AK_Condition_Variable_Wake_All(ak_condition_variable* ConditionVariable) {
     WakeAllConditionVariable(&ConditionVariable->Variable);
+}
+
+AKATOMICDEF bool AK_Event_Create(ak_event* Event) {
+    Event->Handle = CreateEventA(NULL, TRUE, FALSE, NULL);
+    return Event->Handle != NULL;
+}
+
+AKATOMICDEF void AK_Event_Delete(ak_event* Event) {
+    CloseHandle(Event->Handle);
+}
+
+AKATOMICDEF void AK_Event_Signal(ak_event* Event) {
+    SetEvent(Event->Handle);
+}
+
+AKATOMICDEF void AK_Event_Wait(ak_event* Event) {
+    WaitForSingleObject(Event->Handle, INFINITE);
+}
+
+AKATOMICDEF void AK_Event_Reset(ak_event* Event) {
+    ResetEvent(Event->Handle);
 }
 
 AKATOMICDEF bool AK_TLS_Create(ak_tls* TLS) {
