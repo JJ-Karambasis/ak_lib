@@ -265,10 +265,6 @@ typedef struct ak_condition_variable {
     CONDITION_VARIABLE Variable;
 } ak_condition_variable;
 
-typedef struct ak_event {
-    HANDLE Handle;
-} ak_event;
-
 typedef struct ak_tls {
     DWORD Index;
 } ak_tls;
@@ -2160,7 +2156,7 @@ AKATOMICDEF void AK_RW_Unlock_Writer(ak_rw_lock* Lock) {
     } while(!AK_Atomic_Compare_Exchange_U32_Weak_Explicit(&Lock->Status, (uint32_t*)&OldStatus, NewStatus.Value, AK_ATOMIC_MEMORY_ORDER_RELEASE, AK_ATOMIC_MEMORY_ORDER_RELAXED));
 
     if(WaitToRead > 0) {
-        AK_LW_Semaphore_Add(&Lock->ReadSemaphore, WaitToRead);
+        AK_LW_Semaphore_Add(&Lock->ReadSemaphore, (int32_t)WaitToRead);
     } else if(OldStatus.Bits.Writers > 1) {
         AK_LW_Semaphore_Increment(&Lock->WriteSemaphore);
     }
