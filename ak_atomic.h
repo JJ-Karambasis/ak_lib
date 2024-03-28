@@ -361,6 +361,7 @@ typedef struct ak_event {
     ak_mutex              Mutex;
     ak_condition_variable CondVar;
     uint32_t              State;
+    uint32_t              Padding;
 } ak_event;
 
 AKATOMICDEF bool AK_Event_Create(ak_event* Event);
@@ -473,9 +474,9 @@ typedef union {
 } ak_slot64__internal;
 
 typedef struct {
-    void*                  AllocUserData;
     ak_async_stack_index32 FreeIndices;
     ak_slot64__internal*   Slots; /*Array size is specified by FreeIndices.Capacity*/
+    void*                  AllocUserData;
 } ak_async_slot_map64;
 
 AKATOMICDEF void      AK_Async_Slot_Map64_Init_Raw(ak_async_slot_map64* SlotMap, uint32_t* IndicesPtr, ak_slot64* SlotsPtr, uint32_t Capacity);
@@ -490,6 +491,24 @@ AKATOMICDEF void      AK_Async_Slot_Map64_Free(ak_async_slot_map64* SlotMap);
 #define AK_Slot64(index, key) ((uint64_t)(index) | (((uint64_t)(key) << 32)))
 #define AK_Slot64_Index(slot) ((uint32_t)(slot))
 #define AK_Slot64_Key(slot) ((uint32_t)(slot >> 32))
+
+#endif
+
+#ifndef AK_DISABLE_QSBR
+
+
+typedef uint16_t ak_qsbr_context;
+
+#define AK_QSBR_CALLBACK_DEFINE(name) void name(void* UserData)
+typedef AK_QSBR_CALLBACK_DEFINE(ak_qsbr_callback_func);
+
+typedef struct ak_qsbr ak_qsbr;
+ak_qsbr*        AK_QSBR_Create(void* MallocUserData);
+void            AK_QSBR_Delete(ak_qsbr* QSBR);
+ak_qsbr_context AK_QSBR_Create_Context(ak_qsbr* QSBR);
+void            AK_QSBR_Delete_Context(ak_qsbr* QSBR, ak_qsbr_context Context);
+void            AK_QSBR_Update(ak_qsbr* QSBR, ak_qsbr_context Context);
+void            AK_QSBR_Enqueue(ak_qsbr* QSBR, ak_qsbr_callback_func* Callback, void* UserData, size_t UserDataSize);
 
 #endif
 
@@ -584,10 +603,11 @@ AKATOMICDEF void          AK_Job_Queue_Add_Dependency(ak_job_queue* JobQueue, ak
 extern "C" {
 #endif
 
+#define AK_ATOMIC__UNREFERENCED_PARAMETER(param) (void)(param)
+
 /*Compiler specific functions (all other atomics are built ontop of these)*/
 
 #if defined(AK_ATOMIC_MSVC_COMPILER)
-
 AKATOMICDEF uint32_t AK_Atomic_Load_U32_Relaxed(const ak_atomic_u32* Object) {
     /*Do a volatile load so that compiler doesn't duplicate loads, which makes
       them nonatomic.*/ 
@@ -1744,6 +1764,7 @@ AKATOMICDEF bool AK_Condition_Variable_Create(ak_condition_variable* ConditionVa
 
 AKATOMICDEF void AK_Condition_Variable_Delete(ak_condition_variable* ConditionVariable) {
     /*Noop on win32*/
+    AK_ATOMIC__UNREFERENCED_PARAMETER(ConditionVariable);
 }
 
 AKATOMICDEF void AK_Condition_Variable_Wait(ak_condition_variable* ConditionVariable, ak_mutex* Mutex) {
@@ -2475,6 +2496,293 @@ AKATOMICDEF void AK_Async_Slot_Map64_Free(ak_async_slot_map64* SlotMap) {
 
 #endif
 
+#ifndef AK_DISABLE_QSBR
+
+#ifndef AK_QSBR_NO_STDIO
+#include <stdio.h>
+#endif
+
+#if !defined(AK_QSBR_MALLOC)
+#define AK_QSBR_MALLOC(size, user_data) ((void)(user_data), malloc(size))
+#define AK_QSBR_FREE(ptr, user_data) ((void)(user_data), free(ptr))
+#endif
+
+#if !defined(AK_QSBR_MEMSET)
+#define AK_QSBR_MEMSET(mem, index, size) memset(mem, index, size)
+#endif
+
+#if !defined(AK_QSBR_MEMCPY)
+#define AK_QSBR_MEMCPY(mem, index, size) memcpy(mem, index, size)
+#endif
+
+#if !defined(AK_QSBR_ASSERT)
+#include <assert.h>
+#define AK_QSBR_ASSERT(cond) assert(cond)
+#endif
+
+#define AK_QSBR__ALIGNMENT 16
+
+#if AK_ATOMIC_PTR_SIZE == 8
+#define AK_QSBR_USERDATA_SIZE 55
+#else
+#define AK_QSBR_USERDATA_SIZE 59
+#endif
+
+enum {
+    AK__QSBR_ACTION_FLAG_NONE,
+    AK__QSBR_ACTION_FLAG_HEAP_ALLOCATED_BIT = (1 << 0)
+};
+
+static void* AK_QSBR__Malloc(size_t Size, void* MallocUserData) {
+    size_t Offset = AK_QSBR__ALIGNMENT - 1 + sizeof(void*);
+    void* P1 = AK_QSBR_MALLOC(Size+Offset, MallocUserData);
+    if(!P1) return NULL;
+
+    void** P2 = (void**)(((size_t)(P1) + Offset) & ~(AK_QSBR__ALIGNMENT - 1));
+    P2[-1] = P1;
+         
+    return P2;
+}
+
+static void AK_QSBR__Free(void* Memory, void* MallocUserData) {
+    if(Memory) {
+        void** P2 = (void**)Memory;
+        AK_QSBR_FREE(P2[-1], MallocUserData);
+    }
+}
+
+typedef struct {
+    ak_qsbr_callback_func* Callback;
+    uint8_t                UserData[AK_QSBR_USERDATA_SIZE];
+    uint8_t                Flags;
+} ak_qsbr__action;
+
+AK_ATOMIC__COMPILE_TIME_ASSERT(sizeof(ak_qsbr__action) == 64);
+
+static void AK_QSBR__Allocate_Action(ak_qsbr__action* Action, ak_qsbr_callback_func* Callback, void* UserData, size_t UserDataSize, void* MallocUserData) {
+    void* Data;
+    if(UserDataSize <= sizeof(Action->UserData)) {
+        Data = Action->UserData;
+        Action->Flags &= ~AK__QSBR_ACTION_FLAG_HEAP_ALLOCATED_BIT;
+    } else {
+        void* SlowData = AK_QSBR__Malloc(UserDataSize, MallocUserData);
+        AK_QSBR_ASSERT(SlowData);
+
+        /*Copy pointer address to user data*/
+        AK_QSBR_MEMCPY(Action->UserData, &SlowData, sizeof(void*));
+        Data = SlowData;
+        Action->Flags |= AK__QSBR_ACTION_FLAG_HEAP_ALLOCATED_BIT;
+    }
+    Action->Callback = Callback;
+    AK_QSBR_MEMCPY(Data, UserData, UserDataSize);
+}
+
+#define AK_QSBR__Get_User_Data_Heap(user_data) (void*)(*(size_t*)(user_data))
+
+static void AK_QSBR__Free_Action(ak_qsbr__action* Action, void* AllocUserData) {
+    if(Action->Flags & AK__QSBR_ACTION_FLAG_HEAP_ALLOCATED_BIT) {
+        void* Ptr = AK_QSBR__Get_User_Data_Heap(Action->UserData);
+        AK_QSBR__Free(Ptr, AllocUserData);
+        Action->Flags &= ~AK__QSBR_ACTION_FLAG_HEAP_ALLOCATED_BIT;
+    }
+}
+
+typedef struct {
+    ak_qsbr__action* Ptr;
+    size_t           Count;
+    size_t           Capacity;
+} ak_qsbr__action_list;
+
+#define AK_QSBR__List_Append(List, Entry, type, MallocUserData) \
+    if((List)->Count == (List)->Capacity) { \
+        (List)->Capacity = (List)->Capacity ? (List)->Capacity*2 : 32; \
+        type* Ptr = (type*)AK_QSBR__Malloc(sizeof(type)*(List)->Capacity, MallocUserData); \
+        if((List)->Ptr) { \
+            AK_QSBR_MEMCPY(Ptr, (List)->Ptr, (List)->Count*sizeof(type)); \
+            AK_QSBR__Free((List)->Ptr, MallocUserData); \
+        } \
+        (List)->Ptr = Ptr; \
+    } \
+    (List)->Ptr[(List)->Count++] = Entry
+
+#define AK_QSBR__List_Delete(List, MallocUserData) \
+    if((List)->Ptr) { \
+        AK_QSBR__Free((List)->Ptr, MallocUserData); \
+    } \
+    (List)->Ptr = NULL; \
+    (List)->Count = 0; \
+    (List)->Capacity = 0
+
+typedef struct {
+    uint16_t InUse    : 1;
+    uint16_t WasIdle  : 1;
+    int16_t  NextFree : 14;
+} ak_qsbr__status;
+
+typedef struct {
+    ak_qsbr__status* Ptr;
+    size_t           Count;
+    size_t           Capacity;
+} ak_qsbr__status_list;
+
+static void AK_QSBR__Status_Init(ak_qsbr__status* Status) {
+    Status->InUse    = 1;
+    Status->WasIdle  = 0;
+    Status->NextFree = 0;
+}
+
+struct ak_qsbr {
+    void*    MallocUserData;
+    ak_mutex Mutex;
+    ak_qsbr__status_list Status;
+    ak_qsbr__action_list DeferredActions;
+    ak_qsbr__action_list PendingActions;
+    int16_t FreeIndex;
+    int16_t NumContexts;
+    int16_t NumRemaining;
+};
+
+static void AK_QSBR__On_All_Quiescent_States_Passed(ak_qsbr* QSBR, ak_qsbr__action_list* ActionList) {
+    *ActionList           = QSBR->PendingActions;
+    QSBR->PendingActions  = QSBR->DeferredActions;
+    AK_QSBR_MEMSET(&QSBR->DeferredActions, 0, sizeof(ak_qsbr__action_list));
+    QSBR->NumRemaining = QSBR->NumContexts;
+    
+    size_t i;
+    for(i = 0; i < QSBR->Status.Count; i++) {
+        QSBR->Status.Ptr[i].WasIdle = 0;
+    }
+}
+
+static void AK_QSBR__Process_All_Actions(ak_qsbr* QSBR, ak_qsbr__action_list* ActionList) {
+    if(ActionList->Count) {
+        /*Process all actions and then delete their data*/
+        size_t i;
+        for(i = 0; i < ActionList->Count; i++) {
+            ak_qsbr__action* Action = ActionList->Ptr + i;
+            void* UserData = 
+                ((Action->Flags & AK__QSBR_ACTION_FLAG_HEAP_ALLOCATED_BIT) ? 
+                 AK_QSBR__Get_User_Data_Heap(Action->UserData) : 
+                 (void*)Action->UserData);
+            Action->Callback(UserData);
+        }
+
+        for(i = 0; i < ActionList->Count; i++) {
+            AK_QSBR__Free_Action(&ActionList->Ptr[i], QSBR->MallocUserData);
+        }
+
+        AK_QSBR__List_Delete(ActionList, QSBR->MallocUserData);
+    }
+}
+
+ak_qsbr* AK_QSBR_Create(void* MallocUserData) {
+    ak_qsbr* QSBR = (ak_qsbr*)AK_QSBR__Malloc(sizeof(ak_qsbr), MallocUserData);
+    if(!QSBR) return NULL;
+
+    AK_QSBR_MEMSET(QSBR, 0, sizeof(ak_qsbr));
+
+    QSBR->MallocUserData = MallocUserData;
+    AK_Mutex_Create(&QSBR->Mutex);
+
+    QSBR->FreeIndex    = -1;
+    QSBR->NumContexts  = 0;
+    QSBR->NumRemaining = 0;
+    return QSBR;
+}
+
+void AK_QSBR_Delete(ak_qsbr* QSBR) {
+    if(QSBR) {
+        AK_QSBR__List_Delete(&QSBR->PendingActions, QSBR->MallocUserData);
+        AK_QSBR__List_Delete(&QSBR->DeferredActions, QSBR->MallocUserData);
+        AK_QSBR__List_Delete(&QSBR->Status, QSBR->MallocUserData);
+        AK_Mutex_Delete(&QSBR->Mutex);
+        AK_QSBR__Free(QSBR, QSBR->MallocUserData);
+    }
+}
+
+ak_qsbr_context AK_QSBR_Create_Context(ak_qsbr* QSBR) {
+    AK_Mutex_Lock(&QSBR->Mutex);
+    QSBR->NumContexts++;
+    QSBR->NumRemaining++;
+    AK_QSBR_ASSERT(QSBR->NumContexts < (1 << 14));
+    ak_qsbr_context Result = QSBR->FreeIndex;
+    if(Result >= 0) {
+        AK_QSBR_ASSERT(Result < (int16_t)QSBR->Status.Count);
+        AK_QSBR_ASSERT(!QSBR->Status.Ptr[Result].InUse);
+        QSBR->FreeIndex = QSBR->Status.Ptr[Result].NextFree;
+        AK_QSBR__Status_Init(&QSBR->Status.Ptr[Result]);
+    } else {
+        Result = (ak_qsbr_context)QSBR->Status.Count;
+        ak_qsbr__status Status;
+        AK_QSBR__Status_Init(&Status);
+        AK_QSBR__List_Append(&QSBR->Status, Status, ak_qsbr__status, QSBR->MallocUserData);
+    }
+
+    AK_Mutex_Unlock(&QSBR->Mutex);
+    return Result;
+}
+
+void AK_QSBR_Delete_Context(ak_qsbr* QSBR, ak_qsbr_context Context) {
+    /*I don't like that we have to allocate memory for the action list
+      everytime we want to process actions. But I'm not sure how to save
+      allocations and being memory safe*/
+    ak_qsbr__action_list ActionList = {0};
+
+    AK_Mutex_Lock(&QSBR->Mutex);
+    AK_QSBR_ASSERT(Context < QSBR->Status.Count);
+    if(QSBR->Status.Ptr[Context].InUse && !QSBR->Status.Ptr[Context].WasIdle) {
+        AK_QSBR_ASSERT(QSBR->NumRemaining > 0);
+        --QSBR->NumRemaining;
+    }
+    QSBR->Status.Ptr[Context].InUse = 0;
+    QSBR->Status.Ptr[Context].NextFree = QSBR->FreeIndex;
+    QSBR->FreeIndex = Context;
+    QSBR->NumContexts--;
+    if(!QSBR->NumRemaining) {
+        AK_QSBR__On_All_Quiescent_States_Passed(QSBR, &ActionList);
+    }
+    
+    AK_Mutex_Unlock(&QSBR->Mutex);
+    AK_QSBR__Process_All_Actions(QSBR, &ActionList);
+}
+
+void AK_QSBR_Update(ak_qsbr* QSBR, ak_qsbr_context Context) {
+    /*I don't like that we have to allocate memory for the action list
+      everytime we want to process actions. But I'm not sure how to save
+      allocations and being memory safe*/
+    ak_qsbr__action_list ActionList = {0};
+
+    AK_Mutex_Lock(&QSBR->Mutex);
+    AK_QSBR_ASSERT(Context < QSBR->Status.Count);
+    ak_qsbr__status* Status = QSBR->Status.Ptr + Context;
+    AK_QSBR_ASSERT(Status->InUse);
+    if(Status->WasIdle) {
+        AK_Mutex_Unlock(&QSBR->Mutex);
+        return;
+    }
+
+    Status->WasIdle = 1;
+    AK_QSBR_ASSERT(QSBR->NumRemaining > 0);
+    --QSBR->NumRemaining;
+    if(!QSBR->NumRemaining) {
+        AK_QSBR__On_All_Quiescent_States_Passed(QSBR, &ActionList);
+    }
+
+    AK_Mutex_Unlock(&QSBR->Mutex);
+    AK_QSBR__Process_All_Actions(QSBR, &ActionList);
+}
+
+void AK_QSBR_Enqueue(ak_qsbr* QSBR, ak_qsbr_callback_func* Callback, void* UserData, size_t UserDataSize) {
+    ak_qsbr__action Action;
+    AK_QSBR__Allocate_Action(&Action, Callback, UserData, UserDataSize, QSBR->MallocUserData);
+
+    AK_Mutex_Lock(&QSBR->Mutex);
+    AK_QSBR__List_Append(&QSBR->DeferredActions, Action, ak_qsbr__action, QSBR->MallocUserData);
+    AK_Mutex_Unlock(&QSBR->Mutex);
+}
+
+#endif
+
 #ifndef AK_DISABLE_JOB
 
 #ifndef AK_JOB_NO_STDIO
@@ -3035,6 +3343,7 @@ static void AK_Job_System__Main(ak__job_system_thread* JobThread) {
 }
 
 static AK_THREAD_CALLBACK_DEFINE(AK_Job_System__Thread_Callback) {
+    AK_ATOMIC__UNREFERENCED_PARAMETER(Thread);
     ak__job_system_thread* JobThread = (ak__job_system_thread*)UserData;
     AK_Job_System__Main(JobThread);
     return 0;
@@ -3341,6 +3650,7 @@ static void AK_Job_Queue__Main(ak__job_queue_thread* JobThread) {
 }
 
 static AK_THREAD_CALLBACK_DEFINE(AK_Job_Queue__Thread_Callback) {
+    AK_ATOMIC__UNREFERENCED_PARAMETER(Thread);
     ak__job_queue_thread* JobThread = (ak__job_queue_thread*)UserData;
     AK_Job_Queue__Main(JobThread);
     return 0;

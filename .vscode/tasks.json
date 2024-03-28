@@ -7,7 +7,7 @@
             "label": "Build Win32",
             "type": "shell",
             "windows": {
-                "command": "${workspaceFolder}/build/build_win32.bat intel release env64",
+                "command": "${workspaceFolder}/build/build_win32.bat",
                 "problemMatcher": ["$msCompile", "$gcc"]
             },
             "group": {
@@ -19,14 +19,14 @@
             "label": "Build Android",
             "type": "shell",
             "windows": {
-                "command": "${workspaceFolder}/build/build_android.bat release all",
+                "command": "${workspaceFolder}/build/build_android.bat all",
                 "problemMatcher": "$gcc"
             },
-            "command": "${workspaceFolder}/build/build_android.sh release all",
+            "command": "${workspaceFolder}/build/build_android.sh all",
             "problemMatcher": "$gcc",
             "group": {
                 "kind": "build",
-                "isDefault": false
+                "isDefault": true
             }
         },
         {
