@@ -479,7 +479,7 @@ typedef struct {
 } ak_async_slot_map64;
 
 AKATOMICDEF void      AK_Async_Slot_Map64_Init_Raw(ak_async_slot_map64* SlotMap, uint32_t* IndicesPtr, ak_slot64* SlotsPtr, uint32_t Capacity);
-AKATOMICDEF bool      AK_Async_Slot_Map64_Is_Allocated(ak_async_slot_map64* SlotMap, ak_slot64 Slot);
+AKATOMICDEF bool      AK_Async_Slot_Map64_Is_Allocated(const ak_async_slot_map64* SlotMap, ak_slot64 Slot);
 AKATOMICDEF ak_slot64 AK_Async_Slot_Map64_Alloc_Slot(ak_async_slot_map64* SlotMap);
 AKATOMICDEF void      AK_Async_Slot_Map64_Free_Slot(ak_async_slot_map64* SlotMap, ak_slot64 Slot);
 AKATOMICDEF bool      AK_Async_Slot_Map64_Alloc(ak_async_slot_map64* SlotMap, uint32_t Capacity, void* AllocUserData);
@@ -2425,7 +2425,7 @@ AKATOMICDEF void AK_Async_Slot_Map64_Init_Raw(ak_async_slot_map64* SlotMap, uint
     }
 }
 
-AKATOMICDEF bool AK_Async_Slot_Map64_Is_Allocated(ak_async_slot_map64* SlotMap, ak_slot64 Slot) {
+AKATOMICDEF bool AK_Async_Slot_Map64_Is_Allocated(const ak_async_slot_map64* SlotMap, ak_slot64 Slot) {
     ak_slot64__internal SlotID = {Slot};
     AK_ASYNC_SLOT_MAP_ASSERT(SlotID.Data.Index < SlotMap->FreeIndices.Capacity); /*Overflow!*/
     return AK_Atomic_Load_U32_Relaxed(&SlotMap->Slots[SlotID.Data.Index].Data.Generation) == SlotID.Data.Generation.Nonatomic;
