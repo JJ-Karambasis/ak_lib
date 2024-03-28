@@ -7,7 +7,7 @@
             "label": "Build Win32",
             "type": "shell",
             "windows": {
-                "command": "${workspaceFolder}/build/build_win32.bat debug env64",
+                "command": "${workspaceFolder}/build/build_win32.bat intel release env64",
                 "problemMatcher": ["$msCompile", "$gcc"]
             },
             "group": {

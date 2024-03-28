@@ -7,6 +7,16 @@
 #include <assert.h>
 #include "utest.h"
 
+int32_t AK_Atomic_Test_Random_Between(int32_t Min, int32_t Max) {
+    int32_t n = Max - Min + 1;
+    int32_t remainder = RAND_MAX % n;
+    int32_t x;
+    do{
+        x = rand();
+    } while (x >= RAND_MAX - remainder);
+    return Min + x % n;
+}
+
 typedef struct {
     ak_atomic_u32 X;
     ak_atomic_u32 Y;
@@ -831,6 +841,87 @@ UTEST(AK_Atomic, CompareExchangePtr) {
     free(Threads);
     free(ThreadData);
     free(Nodes);
+}
+
+typedef struct {
+    ak_rw_lock    RWLock;
+    int32_t*      Shared;
+    int32_t       SharedLength;
+    uint32_t      Iterations;
+    ak_atomic_u32 Success;
+} ak_rw_lock_test_data;
+
+int32_t AK_RW_Lock_Test_Thread(ak_thread* Thread, void* UserData) {
+    ak_rw_lock_test_data* TestData = (ak_rw_lock_test_data*)UserData;
+
+    uint32_t i;
+    for(i = 0; i < TestData->Iterations; i++) {
+
+        if(AK_Atomic_Test_Random_Between(0, 3) == 0) {
+            int32_t Value = rand();
+
+            AK_RW_Lock_Writer(&TestData->RWLock);
+            int32_t j;
+            for(j = TestData->SharedLength-1; j >= 0; j--) {
+                TestData->Shared[j] = Value--;
+            }
+            AK_RW_Unlock_Writer(&TestData->RWLock);
+        } else {
+            bool Ok = true;
+            {
+                AK_RW_Lock_Reader(&TestData->RWLock);
+                int32_t Value = TestData->Shared[0];
+
+                int32_t j;
+                for(j = 1; j < TestData->SharedLength; j++) {
+                    Ok = Ok && (++Value == TestData->Shared[j]);
+                }
+                AK_RW_Unlock_Reader(&TestData->RWLock);
+            }
+            if(!Ok) {
+                AK_Atomic_Store_U32_Relaxed(&TestData->Success, false);
+            }
+        }
+    }
+
+    return 0;
+}
+
+UTEST(AK_RW_Lock, Test) {
+    static const uint32_t Iterations = 5000000;
+    static const int32_t SharedArrayLength = 32;
+    uint32_t NumThreads = AK_Get_Processor_Thread_Count();
+
+    ak_rw_lock_test_data TestData = {0};
+    TestData.Iterations = Iterations;
+    TestData.Shared = malloc(sizeof(int32_t)*SharedArrayLength);
+    TestData.SharedLength = SharedArrayLength;
+    AK_RW_Lock_Create(&TestData.RWLock);
+    
+    int32_t si;
+    for(si = 0; si < SharedArrayLength; si++) {
+        TestData.Shared[si] = si;
+    }
+    AK_Atomic_Store_U32_Relaxed(&TestData.Success, true);
+
+    ak_thread* Threads = (ak_thread*)malloc(NumThreads*sizeof(ak_thread));
+    uint32_t i;
+    for(i = 0; i < NumThreads; i++) {
+        AK_Thread_Create(&Threads[i], AK_RW_Lock_Test_Thread, &TestData);
+    }
+
+    for(i = 0; i < NumThreads; i++) {
+        AK_Thread_Wait(&Threads[i]);
+    }
+
+    for(i = 0; i < NumThreads; i++) {
+        AK_Thread_Delete(&Threads[i]);
+    }
+
+    free(Threads);
+    ASSERT_TRUE(TestData.Success.Nonatomic);
+    free(TestData.Shared);
+    AK_RW_Lock_Delete(&TestData.RWLock);
 }
 
 #ifndef AK_DISABLE_ASYNC_SLOT_MAP

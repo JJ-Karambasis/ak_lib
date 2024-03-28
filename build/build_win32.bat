@@ -47,7 +47,7 @@ set clang_release=  call clang -O2 %clang_common%
 set clang_link=     
 set clang_out=      -o
 
-set intel_debug=    call icx -O0 %intel_common%
+set intel_debug=    call icx -Od %intel_common%
 set intel_release=  call icx -O2 %intel_common%
 set intel_link=
 set intel_out=      -o
@@ -69,6 +69,8 @@ if "%intel%"=="1" set compile_out=     %intel_out%
 
 if "%debug%"=="1"   set compile=%compile_debug%
 if "%release%"=="1" set compile=%compile_release%
+
+echo %compile%
 
 if not exist %BasePath%\ests\ak_atomic_test_bin\ ( mkdir %BasePath%\tests\ak_atomic_test_bin\ )
 pushd %BasePath%\tests\ak_atomic_test_bin\

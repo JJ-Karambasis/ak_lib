@@ -343,12 +343,6 @@ AKATOMICDEF void AK_Condition_Variable_Wait(ak_condition_variable* ConditionVari
 AKATOMICDEF void AK_Condition_Variable_Wake_One(ak_condition_variable* ConditionVariable);
 AKATOMICDEF void AK_Condition_Variable_Wake_All(ak_condition_variable* ConditionVariable);
 
-AKATOMICDEF bool AK_Event_Create(ak_event* Event);
-AKATOMICDEF void AK_Event_Delete(ak_event* Event);
-AKATOMICDEF void AK_Event_Signal(ak_event* Event);
-AKATOMICDEF void AK_Event_Wait(ak_event* Event);
-AKATOMICDEF void AK_Event_Reset(ak_event* Event);
-
 AKATOMICDEF bool  AK_TLS_Create(ak_tls* TLS);
 AKATOMICDEF void  AK_TLS_Delete(ak_tls* TLS);
 AKATOMICDEF void* AK_TLS_Get(ak_tls* TLS);
@@ -367,6 +361,18 @@ AKATOMICDEF void AK_LW_Semaphore_Increment(ak_lw_semaphore* Semaphore);
 AKATOMICDEF void AK_LW_Semaphore_Decrement(ak_lw_semaphore* Semaphore);
 AKATOMICDEF void AK_LW_Semaphore_Add(ak_lw_semaphore* Semaphore, int32_t Addend);
 
+typedef struct ak_event {
+    ak_mutex              Mutex;
+    ak_condition_variable CondVar;
+    uint32_t              State;
+} ak_event;
+
+AKATOMICDEF bool AK_Event_Create(ak_event* Event);
+AKATOMICDEF void AK_Event_Delete(ak_event* Event);
+AKATOMICDEF void AK_Event_Signal(ak_event* Event);
+AKATOMICDEF void AK_Event_Wait(ak_event* Event);
+AKATOMICDEF void AK_Event_Reset(ak_event* Event);
+
 typedef struct ak_auto_reset_event {
     /*
      1- Signaled
@@ -382,6 +388,29 @@ AKATOMICDEF bool AK_Auto_Reset_Event_Create(ak_auto_reset_event* Event, int32_t 
 AKATOMICDEF void AK_Auto_Reset_Event_Delete(ak_auto_reset_event* Event);
 AKATOMICDEF void AK_Auto_Reset_Event_Signal(ak_auto_reset_event* Event);
 AKATOMICDEF void AK_Auto_Reset_Event_Wait(ak_auto_reset_event* Event);
+
+typedef struct {
+    /*
+    Bits 0-10:  Number of readers
+    Bits 10-20: Numbers of waiting readers
+    Bits 20-30: Number of writers
+    */
+    uint32_t PackedStatus;
+} ak__packed_status;
+
+typedef struct ak_rw_lock {
+    ak_lw_semaphore ReadSemaphore;
+    ak_lw_semaphore WriteSemaphore;
+    ak_atomic_u32   Status;
+    uint32_t        Unused__Padding;
+} ak_rw_lock;
+
+AKATOMICDEF bool AK_RW_Lock_Create(ak_rw_lock* Lock);
+AKATOMICDEF void AK_RW_Lock_Delete(ak_rw_lock* Lock);
+AKATOMICDEF void AK_RW_Lock_Reader(ak_rw_lock* Lock);
+AKATOMICDEF void AK_RW_Unlock_Reader(ak_rw_lock* Lock);
+AKATOMICDEF void AK_RW_Lock_Writer(ak_rw_lock* Lock);
+AKATOMICDEF void AK_RW_Unlock_Writer(ak_rw_lock* Lock);
 
 #ifndef AK_DISABLE_ASYNC_STACK_INDEX
 
@@ -1742,27 +1771,6 @@ AKATOMICDEF void AK_Condition_Variable_Wake_All(ak_condition_variable* Condition
     WakeAllConditionVariable(&ConditionVariable->Variable);
 }
 
-AKATOMICDEF bool AK_Event_Create(ak_event* Event) {
-    Event->Handle = CreateEventA(NULL, TRUE, FALSE, NULL);
-    return Event->Handle != NULL;
-}
-
-AKATOMICDEF void AK_Event_Delete(ak_event* Event) {
-    CloseHandle(Event->Handle);
-}
-
-AKATOMICDEF void AK_Event_Signal(ak_event* Event) {
-    SetEvent(Event->Handle);
-}
-
-AKATOMICDEF void AK_Event_Wait(ak_event* Event) {
-    WaitForSingleObject(Event->Handle, INFINITE);
-}
-
-AKATOMICDEF void AK_Event_Reset(ak_event* Event) {
-    ResetEvent(Event->Handle);
-}
-
 AKATOMICDEF bool AK_TLS_Create(ak_tls* TLS) {
     TLS->Index = TlsAlloc();
     return TLS->Index != TLS_OUT_OF_INDEXES;
@@ -2004,6 +2012,39 @@ AKATOMICDEF void AK_LW_Semaphore_Add(ak_lw_semaphore* Semaphore, int32_t Addend)
     }
 }
 
+AKATOMICDEF bool AK_Event_Create(ak_event* Event) {
+    Event->State = false;
+    if(!AK_Mutex_Create(&Event->Mutex)) return false;
+    if(!AK_Condition_Variable_Create(&Event->CondVar)) return false;
+    return true;
+}
+
+AKATOMICDEF void AK_Event_Delete(ak_event* Event) {
+    AK_Condition_Variable_Delete(&Event->CondVar);
+    AK_Mutex_Delete(&Event->Mutex);
+}
+
+AKATOMICDEF void AK_Event_Signal(ak_event* Event) {
+    AK_Mutex_Lock(&Event->Mutex);
+    Event->State = true;
+    AK_Condition_Variable_Wake_All(&Event->CondVar);
+    AK_Mutex_Unlock(&Event->Mutex);
+}
+
+AKATOMICDEF void AK_Event_Wait(ak_event* Event) {
+    AK_Mutex_Lock(&Event->Mutex);
+    while(!Event->State) {
+        AK_Condition_Variable_Wait(&Event->CondVar, &Event->Mutex);
+    }
+    AK_Mutex_Unlock(&Event->Mutex);
+}
+
+AKATOMICDEF void AK_Event_Reset(ak_event* Event) {
+    AK_Mutex_Lock(&Event->Mutex);
+    Event->State = false;
+    AK_Mutex_Unlock(&Event->Mutex);
+}
+
 AKATOMICDEF bool AK_Auto_Reset_Event_Create(ak_auto_reset_event* Event, int32_t InitialStatus) {
     if(InitialStatus < 0 || InitialStatus > 1) {
         return false;
@@ -2036,6 +2077,92 @@ AKATOMICDEF void AK_Auto_Reset_Event_Wait(ak_auto_reset_event* Event) {
     AK_OS_THREAD_ASSERT(OldStatus <= 1);
     if(OldStatus < 1) {
         AK_LW_Semaphore_Decrement(&Event->Semaphore);
+    }
+}
+
+#define AK_RW_LOCK_STATUS__MAX_VALUE ((1 << 10) - 1)
+
+typedef union {
+    uint32_t Value;
+    struct {
+        uint32_t Readers    : 10;
+        uint32_t WaitToRead : 10;
+        uint32_t Writers    : 10;
+    } Bits;
+} ak_rw_lock__status;
+
+AK_ATOMIC__COMPILE_TIME_ASSERT(sizeof(ak_rw_lock__status) == 4);
+
+AKATOMICDEF bool AK_RW_Lock_Create(ak_rw_lock* Lock) {
+    Lock->Status.Nonatomic = 0;
+    if(!AK_LW_Semaphore_Create(&Lock->ReadSemaphore, 0)) return false;
+    if(!AK_LW_Semaphore_Create(&Lock->WriteSemaphore, 0)) return false;
+    return true;
+}
+
+AKATOMICDEF void AK_RW_Lock_Delete(ak_rw_lock* Lock) {
+    AK_LW_Semaphore_Delete(&Lock->WriteSemaphore);
+    AK_LW_Semaphore_Delete(&Lock->ReadSemaphore);
+    Lock->Status.Nonatomic = 0;
+}
+
+AKATOMICDEF void AK_RW_Lock_Reader(ak_rw_lock* Lock) {
+    ak_rw_lock__status OldStatus = {AK_Atomic_Load_U32_Relaxed(&Lock->Status)};
+    ak_rw_lock__status NewStatus;
+
+    do {
+        NewStatus = OldStatus;
+        if(OldStatus.Bits.Writers > 0) {
+            NewStatus.Bits.WaitToRead++;
+        } else {
+            NewStatus.Bits.Readers++;
+        }
+    } while(!AK_Atomic_Compare_Exchange_U32_Weak_Explicit(&Lock->Status, (uint32_t*)&OldStatus, NewStatus.Value, AK_ATOMIC_MEMORY_ORDER_ACQUIRE, AK_ATOMIC_MEMORY_ORDER_RELAXED));
+
+    if(OldStatus.Bits.Writers > 0) {
+        AK_LW_Semaphore_Decrement(&Lock->ReadSemaphore);
+    }
+}
+
+AKATOMICDEF void AK_RW_Unlock_Reader(ak_rw_lock* Lock) {
+    const int32_t Value = (int32_t)(1 << 0);
+    ak_rw_lock__status OldStatus = {AK_Atomic_Fetch_Add_U32(&Lock->Status, -Value, AK_ATOMIC_MEMORY_ORDER_RELEASE)};
+    AK_OS_THREAD_ASSERT(OldStatus.Bits.Readers > 0);
+    if(OldStatus.Bits.Readers == 1 && OldStatus.Bits.Writers > 0) {
+        AK_LW_Semaphore_Increment(&Lock->WriteSemaphore);
+    }
+}
+
+AKATOMICDEF void AK_RW_Lock_Writer(ak_rw_lock* Lock) {
+    const uint32_t Value = (1 << 20);
+    ak_rw_lock__status OldStatus = {AK_Atomic_Fetch_Add_U32(&Lock->Status, Value, AK_ATOMIC_MEMORY_ORDER_ACQUIRE)};
+
+    AK_OS_THREAD_ASSERT(OldStatus.Bits.Writers + 1 <= AK_RW_LOCK_STATUS__MAX_VALUE);
+    if(OldStatus.Bits.Readers > 0 || OldStatus.Bits.Writers > 0) {
+        AK_LW_Semaphore_Decrement(&Lock->WriteSemaphore);
+    }
+}
+
+AKATOMICDEF void AK_RW_Unlock_Writer(ak_rw_lock* Lock) {
+    ak_rw_lock__status OldStatus = {AK_Atomic_Load_U32_Relaxed(&Lock->Status)};
+    ak_rw_lock__status NewStatus;
+
+    uint32_t WaitToRead = 0;
+    do {
+        AK_OS_THREAD_ASSERT(OldStatus.Bits.Readers == 0);
+        NewStatus = OldStatus;
+        NewStatus.Bits.Writers--;
+        WaitToRead = OldStatus.Bits.WaitToRead;
+        if(WaitToRead > 0) {
+            NewStatus.Bits.WaitToRead = 0;
+            NewStatus.Bits.Readers = WaitToRead;
+        }
+    } while(!AK_Atomic_Compare_Exchange_U32_Weak_Explicit(&Lock->Status, (uint32_t*)&OldStatus, NewStatus.Value, AK_ATOMIC_MEMORY_ORDER_RELEASE, AK_ATOMIC_MEMORY_ORDER_RELAXED));
+
+    if(WaitToRead > 0) {
+        AK_LW_Semaphore_Add(&Lock->ReadSemaphore, WaitToRead);
+    } else if(OldStatus.Bits.Writers > 1) {
+        AK_LW_Semaphore_Increment(&Lock->WriteSemaphore);
     }
 }
 
@@ -2974,7 +3101,7 @@ AKATOMICDEF ak_job_system* AK_Job_System_Create(uint32_t MaxJobCount, uint32_t T
         ak__job_system_thread* Thread = JobSystem->Threads + i;
         Thread->JobSystem = JobSystem;
         if(!AK_Thread_Create(&Thread->Thread, AK_Job_System__Thread_Callback, Thread)) {
-            //todo: cleanup resources
+            /*todo: cleanup resources*/
             return NULL;
         }
     }
@@ -3280,7 +3407,7 @@ AKATOMICDEF ak_job_queue* AK_Job_Queue_Create(uint32_t MaxJobCount, uint32_t Thr
         ak__job_queue_thread* Thread = JobQueue->Threads + i;
         Thread->JobQueue = JobQueue;
         if(!AK_Thread_Create(&Thread->Thread, AK_Job_Queue__Thread_Callback, Thread)) {
-            //todo: cleanup resources
+            /*todo: cleanup resources*/
             return NULL;
         }
     }
