@@ -385,15 +385,6 @@ AKATOMICDEF void AK_Auto_Reset_Event_Delete(ak_auto_reset_event* Event);
 AKATOMICDEF void AK_Auto_Reset_Event_Signal(ak_auto_reset_event* Event);
 AKATOMICDEF void AK_Auto_Reset_Event_Wait(ak_auto_reset_event* Event);
 
-typedef struct {
-    /*
-    Bits 0-10:  Number of readers
-    Bits 10-20: Numbers of waiting readers
-    Bits 20-30: Number of writers
-    */
-    uint32_t PackedStatus;
-} ak__packed_status;
-
 typedef struct ak_rw_lock {
     ak_lw_semaphore ReadSemaphore;
     ak_lw_semaphore WriteSemaphore;
