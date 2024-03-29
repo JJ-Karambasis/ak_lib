@@ -2813,6 +2813,8 @@ void AK_QSBR_Enqueue(ak_qsbr* QSBR, ak_qsbr_callback_func* Callback, void* UserD
 #define AK_JOB__ALIGNMENT 16
 #endif
 
+#define AK_Job__Align_Pow2(value, alignment) (((value) + (alignment)-1) & ~((alignment)-1))
+
 typedef struct ak__job ak__job;
 typedef struct ak__job_dependency ak__job_dependency;
 
@@ -2824,16 +2826,16 @@ enum {
 
 #define AK__INVALID_JOB_INDEX ((uint32_t)-1)
 struct ak__job {
-    uint32_t                     Index;
-    ak_atomic_u32                Generation;
-    void*                        JobCallback;
-    ak__job*                     ParentJob;
-    ak_atomic_ptr                DependencyList;
-    ak_atomic_u32                PendingDependencies;
-    ak_atomic_u32                PendingJobs;
-    ak_atomic_u32                IsProcessing;
-    uint8_t                      UserData[AK_JOB_SYSTEM_FAST_USERDATA_SIZE];
-    uint8_t                      JobInfoFlags;
+    uint32_t      Index;
+    ak_atomic_u32 Generation;
+    void*         JobCallback;
+    ak__job*      ParentJob;
+    ak_atomic_ptr DependencyList;
+    ak_atomic_u32 PendingDependencies;
+    ak_atomic_u32 PendingJobs;
+    ak_atomic_u32 IsProcessing;
+    uint8_t       UserData[AK_JOB_SYSTEM_FAST_USERDATA_SIZE];
+    uint8_t       JobInfoFlags;
 };
 
 struct ak__job_dependency {
@@ -2846,6 +2848,7 @@ typedef struct {
     ak_async_stack_index32 FreeJobDependencies;
     ak__job_dependency*    JobDependencies;
     uint32_t               MaxDependencyCount;
+    uint32_t               Unused__Padding;
 } ak__job_dependencies;
 
 typedef struct {
@@ -2862,6 +2865,8 @@ typedef struct {
 /*Highly recommend job size to not go past 64 bytes. Comment out this static 
   assertion if you need more space*/
 AK_ATOMIC__COMPILE_TIME_ASSERT(sizeof(ak__job) == 128);
+AK_ATOMIC__COMPILE_TIME_ASSERT(sizeof(ak__job_dependencies) == 48);
+AK_ATOMIC__COMPILE_TIME_ASSERT(sizeof(ak__job_dependency) == 24);
 
 static void* AK_Job__Malloc(size_t Size, void* MallocUserData) {
     size_t Offset = AK_JOB__ALIGNMENT - 1 + sizeof(void*);
@@ -2880,6 +2885,9 @@ static void AK_Job__Free(void* Memory, void* MallocUserData) {
         AK_JOB_FREE(P2[-1], MallocUserData);
     }
 }
+
+#define AK__Job_Validate_Ptr(Ptr) ((((size_t)Ptr) & (AK_JOB__ALIGNMENT-1)) == 0)
+#define AK__Job_Byte_Offset(ptr, offset, type) (type*)(((uint8_t*)(ptr))+offset)
 
 static ak_job_id AK__Job_Make_ID(ak__job* Job) {
     ak_job_id JobID = (uint64_t)(Job->Index) | ((uint64_t)AK_Atomic_Load_U32_Relaxed(&Job->Generation) << 32);
@@ -2916,6 +2924,7 @@ static void AK_Job__Free_Data(ak__job* Job, void* AllocUserData) {
 
 static void AK_Job__Storage_Init(ak__job_storage* JobStorage, uint32_t* FreeJobIndices, ak__job* Jobs, uint32_t JobCount) {
     AK_Async_Stack_Index32_Init_Raw(&JobStorage->FreeJobIndices, FreeJobIndices, JobCount);
+    AK_JOB_ASSERT(AK__Job_Validate_Ptr(Jobs));
     JobStorage->Jobs = Jobs;
 
     uint32_t i;
@@ -2978,6 +2987,7 @@ static void AK_Job__Storage_Free(ak__job_storage* JobStorage, ak_job_id JobID, v
 static void AK_Job__Init_Dependencies(ak__job_dependencies* Dependencies, uint32_t* FreeIndices, ak__job_dependency* DependenciesPtr, uint32_t DependencyCount) {
     
     AK_Async_Stack_Index32_Init_Raw(&Dependencies->FreeJobDependencies, FreeIndices, DependencyCount);
+    AK_JOB_ASSERT(AK__Job_Validate_Ptr(DependenciesPtr));
     Dependencies->JobDependencies = DependenciesPtr;
     Dependencies->MaxDependencyCount = DependencyCount;
     
@@ -3352,18 +3362,29 @@ static AK_THREAD_CALLBACK_DEFINE(AK_Job_System__Thread_Callback) {
 AKATOMICDEF ak_job_system* AK_Job_System_Create(uint32_t MaxJobCount, uint32_t ThreadCount, uint32_t MaxDependencyCount, const ak_job_thread_callbacks* ThreadCallbacks, void* MallocUserData) {
 
     /*Get the allocation size. Want to avoid many small allocations so batch them together*/
-    size_t AllocationSize = sizeof(ak_job_system); /*Space for the job system*/ 
-    AllocationSize += MaxJobCount*sizeof(uint32_t); /*Space for the job free indices*/
-    AllocationSize += MaxJobCount*sizeof(ak__job); /*Space for the jobs*/
-    AllocationSize += ThreadCount*sizeof(ak__job_system_thread); /*Space for the threads*/
-    AllocationSize += MaxDependencyCount*sizeof(uint32_t); /*Space for the job free dependency indices*/
-    AllocationSize += MaxDependencyCount*sizeof(ak__job_dependency); /*Space for the dependencies*/
+    /*Data entries should also be 16 byte aligned, so if any entry is not aligned
+      we will add some extra padding*/
+    
+    size_t JobSystemSize = AK_Job__Align_Pow2(sizeof(ak_job_system), AK_JOB__ALIGNMENT);
+    size_t JobFreeIndicesSize = AK_Job__Align_Pow2(MaxJobCount*sizeof(uint32_t), AK_JOB__ALIGNMENT);
+    size_t JobSize = AK_Job__Align_Pow2(MaxJobCount*sizeof(ak__job), AK_JOB__ALIGNMENT);
+    size_t ThreadSize = AK_Job__Align_Pow2(ThreadCount*sizeof(ak__job_system_thread), AK_JOB__ALIGNMENT);
+    size_t DependencyFreeIndicesSize = AK_Job__Align_Pow2(MaxDependencyCount*sizeof(uint32_t), AK_JOB__ALIGNMENT);
+    size_t DependencySize = AK_Job__Align_Pow2(MaxDependencyCount*sizeof(ak__job_dependencies), AK_JOB__ALIGNMENT);
+
+    size_t AllocationSize = JobSystemSize; /*Space for the job system*/ 
+    AllocationSize += JobFreeIndicesSize; /*Space for the job free indices*/
+    AllocationSize += JobSize; /*Space for the jobs*/
+    AllocationSize += ThreadSize; /*Space for the threads*/
+    AllocationSize += DependencyFreeIndicesSize; /*Space for the job free dependency indices*/
+    AllocationSize += DependencySize; /*Space for the dependencies*/
 
     /*Allocate and clear all the memory*/
     ak_job_system* JobSystem = (ak_job_system*)AK_Job__Malloc(AllocationSize, MallocUserData);
     AK_JOB_ASSERT(JobSystem);
 
     if(!JobSystem) return NULL;
+    AK_JOB_ASSERT(AK__Job_Validate_Ptr(JobSystem));
 
     AK_JOB_MEMSET(JobSystem, 0, AllocationSize);
 
@@ -3373,16 +3394,17 @@ AKATOMICDEF ak_job_system* AK_Job_System_Create(uint32_t MaxJobCount, uint32_t T
     AK_LW_Semaphore_Create(&JobSystem->JobSemaphore, 0);
 
     /*Job information*/
-    uint32_t* FreeJobIndices = (uint32_t*)(JobSystem+1);
-    ak__job* Jobs = (ak__job*)(FreeJobIndices+MaxJobCount);
+    uint32_t* FreeJobIndices = AK__Job_Byte_Offset(JobSystem, JobSystemSize, uint32_t);
+    ak__job* Jobs = AK__Job_Byte_Offset(FreeJobIndices, JobFreeIndicesSize, ak__job);
     AK_Job__Storage_Init(&JobSystem->JobStorage, FreeJobIndices, Jobs, MaxJobCount);
 
     JobSystem->ThreadCount = ThreadCount;
-    JobSystem->Threads = (ak__job_system_thread*)(Jobs+MaxJobCount);
+    JobSystem->Threads = AK__Job_Byte_Offset(Jobs, JobSize, ak__job_system_thread);
+    AK_JOB_ASSERT(AK__Job_Validate_Ptr(JobSystem->Threads));
 
     if(MaxDependencyCount) {
-        uint32_t* FreeDependencyIndices = (uint32_t*)(JobSystem->Threads + ThreadCount);
-        ak__job_dependency* JobDependencies = (ak__job_dependency*)(FreeDependencyIndices+MaxDependencyCount); 
+        uint32_t* FreeDependencyIndices = AK__Job_Byte_Offset(JobSystem->Threads, ThreadSize, uint32_t);
+        ak__job_dependency* JobDependencies = AK__Job_Byte_Offset(FreeDependencyIndices, DependencyFreeIndicesSize, ak__job_dependency); 
         AK_Job__Init_Dependencies(&JobSystem->Dependencies, FreeDependencyIndices, JobDependencies, MaxDependencyCount);
     }
     /*Thread information*/
@@ -3658,37 +3680,46 @@ static AK_THREAD_CALLBACK_DEFINE(AK_Job_Queue__Thread_Callback) {
 
 AKATOMICDEF ak_job_queue* AK_Job_Queue_Create(uint32_t MaxJobCount, uint32_t ThreadCount, uint32_t MaxDependencyCount, const ak_job_thread_callbacks* ThreadCallbacks, void* MallocUserData) {
     /*Get the allocation size. Want to avoid many small allocations so batch them together*/
-    size_t AllocationSize = sizeof(ak_job_queue);
-    AllocationSize += MaxJobCount*sizeof(uint32_t); /*Space for the job free indices*/
-    AllocationSize += MaxJobCount*sizeof(ak__job); /*Space for the jobs*/
-    AllocationSize += MaxJobCount*sizeof(uint64_t); /*Space for the async queue*/
-    AllocationSize += ThreadCount*sizeof(ak__job_queue_thread); /*Space for the threads*/
-    AllocationSize += MaxDependencyCount*sizeof(uint32_t); /*Space for the job free dependency indices*/
-    AllocationSize += MaxDependencyCount*sizeof(ak__job_dependency); /*Space for the dependencies*/
+    size_t JobQueueSize = AK_Job__Align_Pow2(sizeof(ak_job_queue), AK_JOB__ALIGNMENT);
+    size_t JobFreeIndicesSize = AK_Job__Align_Pow2(MaxJobCount*sizeof(uint32_t), AK_JOB__ALIGNMENT);
+    size_t JobSize = AK_Job__Align_Pow2(MaxJobCount*sizeof(ak__job), AK_JOB__ALIGNMENT);
+    size_t QueueSize = AK_Job__Align_Pow2(MaxJobCount*sizeof(uint64_t), AK_JOB__ALIGNMENT);
+    size_t ThreadSize = AK_Job__Align_Pow2(ThreadCount*sizeof(ak__job_queue_thread), AK_JOB__ALIGNMENT);
+    size_t DependencyFreeIndicesSize = AK_Job__Align_Pow2(MaxDependencyCount*sizeof(uint32_t), AK_JOB__ALIGNMENT);
+    size_t DependencySize = AK_Job__Align_Pow2(MaxDependencyCount*sizeof(ak__job_dependency), AK_JOB__ALIGNMENT);
+
+    size_t AllocationSize = JobQueueSize;
+    AllocationSize += JobFreeIndicesSize; /*Space for the job free indices*/
+    AllocationSize += JobSize; /*Space for the jobs*/
+    AllocationSize += QueueSize; /*Space for the async queue*/
+    AllocationSize += ThreadSize; /*Space for the threads*/
+    AllocationSize += DependencyFreeIndicesSize; /*Space for the job free dependency indices*/
+    AllocationSize += DependencySize; /*Space for the dependencies*/
     
     /*Allocate and clear all the memory*/
     ak_job_queue* JobQueue = (ak_job_queue*)AK_Job__Malloc(AllocationSize, MallocUserData);
     AK_JOB_ASSERT(JobQueue);
 
     if(!JobQueue) return NULL;
+    AK_JOB_ASSERT(AK__Job_Validate_Ptr(JobQueue));
 
     AK_JOB_MEMSET(JobQueue, 0, AllocationSize);
 
     JobQueue->MallocUserData = MallocUserData;
     AK_LW_Semaphore_Create(&JobQueue->JobSemaphore, 0);
-    uint32_t* FreeJobIndices = (uint32_t*)(JobQueue+1);
-    ak__job* Jobs = (ak__job*)(FreeJobIndices+MaxJobCount);
+    uint32_t* FreeJobIndices = AK__Job_Byte_Offset(JobQueue, JobQueueSize, uint32_t);
+    ak__job* Jobs = AK__Job_Byte_Offset(FreeJobIndices, JobFreeIndicesSize, ak__job);
     AK_Job__Storage_Init(&JobQueue->JobStorage, FreeJobIndices, Jobs, MaxJobCount);
 
-    uint64_t* QueueIndices = (uint64_t*)(Jobs+MaxJobCount);
+    uint64_t* QueueIndices = AK__Job_Byte_Offset(Jobs, JobSize, uint64_t);
     AK_Async_Queue_Index32_Init_Raw(&JobQueue->Queue, QueueIndices, MaxJobCount);
 
     JobQueue->ThreadCount = ThreadCount;
-    JobQueue->Threads = (ak__job_queue_thread*)(QueueIndices+MaxJobCount);
+    JobQueue->Threads = AK__Job_Byte_Offset(QueueIndices, QueueSize, ak__job_queue_thread);
 
     if(MaxDependencyCount) {
-        uint32_t* FreeDependencyIndices = (uint32_t*)(JobQueue->Threads + ThreadCount);
-        ak__job_dependency* JobDependencies = (ak__job_dependency*)(FreeDependencyIndices+MaxDependencyCount); 
+        uint32_t* FreeDependencyIndices = AK__Job_Byte_Offset(JobQueue->Threads, ThreadSize, uint32_t);
+        ak__job_dependency* JobDependencies = AK__Job_Byte_Offset(FreeDependencyIndices, DependencyFreeIndicesSize, ak__job_dependency); 
         AK_Job__Init_Dependencies(&JobQueue->Dependencies, FreeDependencyIndices, JobDependencies, MaxDependencyCount);
     }
 
