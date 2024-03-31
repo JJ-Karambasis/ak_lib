@@ -497,7 +497,7 @@ AKATOMICDEF void      AK_Async_Slot_Map64_Free(ak_async_slot_map64* SlotMap);
 #ifndef AK_DISABLE_QSBR
 
 
-typedef uint16_t ak_qsbr_context;
+typedef int16_t ak_qsbr_context;
 
 #define AK_QSBR_CALLBACK_DEFINE(name) void name(void* UserData)
 typedef AK_QSBR_CALLBACK_DEFINE(ak_qsbr_callback_func);
@@ -2705,7 +2705,7 @@ ak_qsbr_context AK_QSBR_Create_Context(ak_qsbr* QSBR) {
     QSBR->NumContexts++;
     QSBR->NumRemaining++;
     AK_QSBR_ASSERT(QSBR->NumContexts < (1 << 14));
-    ak_qsbr_context Result = QSBR->FreeIndex;
+    ak_qsbr_context Result = (ak_qsbr_context)QSBR->FreeIndex;
     if(Result >= 0) {
         AK_QSBR_ASSERT(Result < (int16_t)QSBR->Status.Count);
         AK_QSBR_ASSERT(!QSBR->Status.Ptr[Result].InUse);
@@ -2729,14 +2729,14 @@ void AK_QSBR_Delete_Context(ak_qsbr* QSBR, ak_qsbr_context Context) {
     ak_qsbr__action_list ActionList = {0};
 
     AK_Mutex_Lock(&QSBR->Mutex);
-    AK_QSBR_ASSERT(Context < QSBR->Status.Count);
+    AK_QSBR_ASSERT(Context < (int16_t)QSBR->Status.Count);
     if(QSBR->Status.Ptr[Context].InUse && !QSBR->Status.Ptr[Context].WasIdle) {
         AK_QSBR_ASSERT(QSBR->NumRemaining > 0);
         --QSBR->NumRemaining;
     }
     QSBR->Status.Ptr[Context].InUse = 0;
     QSBR->Status.Ptr[Context].NextFree = QSBR->FreeIndex;
-    QSBR->FreeIndex = Context;
+    QSBR->FreeIndex = (int16_t)Context;
     QSBR->NumContexts--;
     if(!QSBR->NumRemaining) {
         AK_QSBR__On_All_Quiescent_States_Passed(QSBR, &ActionList);
@@ -2753,7 +2753,7 @@ void AK_QSBR_Update(ak_qsbr* QSBR, ak_qsbr_context Context) {
     ak_qsbr__action_list ActionList = {0};
 
     AK_Mutex_Lock(&QSBR->Mutex);
-    AK_QSBR_ASSERT(Context < QSBR->Status.Count);
+    AK_QSBR_ASSERT(Context < (int16_t)QSBR->Status.Count);
     ak_qsbr__status* Status = QSBR->Status.Ptr + Context;
     AK_QSBR_ASSERT(Status->InUse);
     if(Status->WasIdle) {
