@@ -421,6 +421,26 @@ AKATOMICDEF void     AK_Async_Stack_Index32_Free(ak_async_stack_index32* StackIn
 
 #endif
 
+#ifndef AK_DISABLE_ASYNC_SPMC_QUEUE_INDEX
+
+#define AK_ASYNC_SPMC_QUEUE_INDEX32_INVALID ((uint32_t)-1)
+
+typedef struct ak_async_spmc_queue_index32 {
+    void*         AllocUserData;
+    ak_atomic_u32 BottomIndex;
+    ak_atomic_u32 TopIndex;
+    uint32_t*     Indices;
+    uint32_t      Capacity;
+} ak_async_spmc_queue_index32;
+
+AKATOMICDEF void     AK_Async_SPMC_Queue_Index32_Init_Raw(ak_async_spmc_queue_index32* QueueIndex, uint32_t* IndicesPtr, uint32_t Capacity);
+AKATOMICDEF void     AK_Async_SPMC_Queue_Index32_Enqueue(ak_async_spmc_queue_index32* QueueIndex, uint32_t Index);
+AKATOMICDEF uint32_t AK_Async_SPMC_Queue_Index32_Dequeue(ak_async_spmc_queue_index32* QueueIndex);
+AKATOMICDEF bool     AK_Async_SPMC_Queue_Index32_Alloc(ak_async_spmc_queue_index32* QueueIndex, uint32_t Capacity, void* AllocUserData);
+AKATOMICDEF void     AK_Async_SPMC_Queue_Index32_Free(ak_async_spmc_queue_index32* QueueIndex);
+
+#endif
+
 #ifndef AK_DISABLE_ASYNC_QUEUE_INDEX
 
 #define AK_ASYNC_QUEUE_INDEX32_INVALID ((uint32_t)-1)
@@ -2274,6 +2294,85 @@ AKATOMICDEF void AK_Async_Stack_Index32_Free(ak_async_stack_index32* StackIndex)
         AK_ASYNC_STACK_INDEX_FREE(StackIndex->NextIndices, StackIndex->AllocUserData);
     }
     AK_ASYNC_STACK_INDEX_MEMSET(StackIndex, 0, sizeof(ak_async_stack_index32));
+}
+
+#endif
+
+#ifndef AK_DISABLE_ASYNC_SPMC_QUEUE_INDEX
+
+#ifndef AK_ASYNC_SPMC_QUEUE_INDEX_NO_STDIO
+#include <stdio.h>
+#endif
+
+#if !defined(AK_ASYNC_SPMC_QUEUE_INDEX_MALLOC)
+#define AK_ASYNC_SPMC_QUEUE_INDEX_MALLOC(size, user_data) ((void)(user_data), malloc(size))
+#define AK_ASYNC_SPMC_QUEUE_INDEX_FREE(ptr, user_data) ((void)(user_data), free(ptr))
+#endif
+
+#if !defined(AK_ASYNC_SPMC_QUEUE_INDEX_MEMSET)
+#define AK_ASYNC_SPMC_QUEUE_INDEX_MEMSET(mem, index, size) memset(mem, index, size)
+#endif
+
+#if !defined(AK_ASYNC_SPMC_QUEUE_INDEX_ASSERT)
+#include <assert.h>
+#define AK_ASYNC_SPMC_QUEUE_INDEX_ASSERT(cond) assert(cond)
+#endif
+
+AKATOMICDEF void AK_Async_SPMC_Queue_Index32_Init_Raw(ak_async_spmc_queue_index32* QueueIndex, uint32_t* IndicesPtr, uint32_t Capacity) {
+    AK_ASYNC_SPMC_QUEUE_INDEX_ASSERT((((size_t)&QueueIndex->TopIndex) % 4) == 0);
+    AK_ASYNC_SPMC_QUEUE_INDEX_ASSERT((((size_t)&QueueIndex->BottomIndex) % 4) == 0);
+    QueueIndex->TopIndex.Nonatomic = 0;
+    QueueIndex->BottomIndex.Nonatomic = 0;
+    QueueIndex->Indices = IndicesPtr;
+    QueueIndex->Capacity = Capacity;
+}
+
+AKATOMICDEF void AK_Async_SPMC_Queue_Index32_Enqueue(ak_async_spmc_queue_index32* QueueIndex, uint32_t Index) {
+    int32_t Bottom = (int32_t)AK_Atomic_Load_U32_Relaxed(&QueueIndex->BottomIndex);
+    int32_t Top = (int32_t)AK_Atomic_Load_U32(&QueueIndex->TopIndex, AK_ATOMIC_MEMORY_ORDER_ACQUIRE);
+    if(((int32_t)QueueIndex->Capacity-1) < (Bottom-Top)) {
+        AK_ASYNC_SPMC_QUEUE_INDEX_ASSERT(false);
+        return;
+    }
+    QueueIndex->Indices[Bottom % QueueIndex->Capacity] = Index;
+    AK_Atomic_Thread_Fence_Seq_Cst();
+    AK_Atomic_Compiler_Fence_Seq_Cst();
+    AK_Atomic_Store_U32(&QueueIndex->BottomIndex, (uint32_t)(Bottom+1), AK_ATOMIC_MEMORY_ORDER_RELEASE);
+}
+
+AKATOMICDEF uint32_t AK_Async_SPMC_Queue_Index32_Dequeue(ak_async_spmc_queue_index32* QueueIndex) {
+    int32_t Top = (int32_t)AK_Atomic_Load_U32(&QueueIndex->TopIndex, AK_ATOMIC_MEMORY_ORDER_ACQUIRE);
+    /*Bottom needs to be read after top so an acquire barrier is sufficient (LoadLoad situation)*/
+    AK_Atomic_Thread_Fence_Seq_Cst();
+    AK_Atomic_Compiler_Fence_Seq_Cst();
+    int32_t Bottom = (int32_t)AK_Atomic_Load_U32(&QueueIndex->BottomIndex, AK_ATOMIC_MEMORY_ORDER_ACQUIRE);
+
+    uint32_t Result = AK_ASYNC_SPMC_QUEUE_INDEX32_INVALID;
+    if(Top < Bottom) {
+        Result = QueueIndex->Indices[Top % QueueIndex->Capacity];
+        if(!AK_Atomic_Compare_Exchange_Bool_U32_Explicit(&QueueIndex->TopIndex, (uint32_t)Top, (uint32_t)(Top+1), AK_ATOMIC_MEMORY_ORDER_ACQ_REL, AK_ATOMIC_MEMORY_ORDER_RELAXED)) {
+            Result = AK_ASYNC_SPMC_QUEUE_INDEX32_INVALID;
+        }
+    } 
+    return Result;
+}
+
+AKATOMICDEF bool AK_Async_SPMC_Queue_Index32_Alloc(ak_async_spmc_queue_index32* QueueIndex, uint32_t Capacity, void* AllocUserData) {
+    size_t AllocationSize = Capacity*sizeof(uint32_t);
+    void* Memory = AK_ASYNC_SPMC_QUEUE_INDEX_MALLOC(AllocationSize, AllocUserData);
+    if(!Memory) return false;
+
+    AK_ASYNC_SPMC_QUEUE_INDEX_MEMSET(Memory, 0, AllocationSize);
+    AK_Async_SPMC_Queue_Index32_Init_Raw(QueueIndex, (uint32_t*)Memory, Capacity);
+    QueueIndex->AllocUserData = AllocUserData;
+    return true;
+}
+
+AKATOMICDEF void AK_Async_SPMC_Queue_Index32_Free(ak_async_spmc_queue_index32* QueueIndex) {
+    if(QueueIndex->Indices) {
+        AK_ASYNC_SPMC_QUEUE_INDEX_FREE(QueueIndex->Indices, QueueIndex->AllocUserData);
+    }
+    AK_ASYNC_SPMC_QUEUE_INDEX_MEMSET(QueueIndex, 0, sizeof(ak_async_spmc_queue_index32));
 }
 
 #endif
