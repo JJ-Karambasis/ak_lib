@@ -1,11 +1,6 @@
 #ifndef AK_FBX_H
 #define AK_FBX_H
 
-#ifdef _MSC_VER
-#pragma warning(push)
-#pragma warning(disable : 4820)
-#endif
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -23,7 +18,6 @@ extern "C" {
 #endif
 
 #define AK_FBX__STATIC_ASSERT(COND,MSG) typedef char static_assertion_##MSG[(!!(COND))*2-1]
-// token pasting madness:
 #define AK_FBX__COMPILE_TIME_ASSERT3(X,L) AK_FBX__STATIC_ASSERT(X,static_assertion_at_line_##L)
 #define AK_FBX__COMPILE_TIME_ASSERT2(X,L) AK_FBX__COMPILE_TIME_ASSERT3(X,L)
 #define AK_FBX__COMPILE_TIME_ASSERT(X)    AK_FBX__COMPILE_TIME_ASSERT2(X,__LINE__)
@@ -48,14 +42,18 @@ AK_FBX__COMPILE_TIME_ASSERT(sizeof(ak_fbx_u32) == 4);
 AK_FBX__COMPILE_TIME_ASSERT(sizeof(ak_fbx_s64) == 8);
 AK_FBX__COMPILE_TIME_ASSERT(sizeof(ak_fbx_u64) == 8);
 
+typedef struct ak_fbx_node ak_fbx_node;
+typedef struct ak_fbx_geometry ak_fbx_geometry;
+typedef struct ak_fbx_material ak_fbx_material;
+
 typedef struct ak_fbx_s32_array {
     ak_fbx_s32* Ptr;
-    ak_fbx_u32  Count;
+    ak_fbx_u64  Count;
 } ak_fbx_s32_array;
 
 typedef struct ak_fbx_string {
     const char* Str;
-    ak_fbx_u32  Size;
+    ak_fbx_u64  Size;
 } ak_fbx_string;
 
 typedef struct ak_fbx_v2 {
@@ -72,12 +70,12 @@ typedef struct ak_fbx_m4x3 {
 
 typedef struct ak_fbx_v2_array {
     ak_fbx_v2* Ptr;
-    ak_fbx_u32 Count;
+    ak_fbx_u64 Count;
 } ak_fbx_v2_array;
 
 typedef struct ak_fbx_v3_array {
     ak_fbx_v3* Ptr;
-    ak_fbx_u32 Count;
+    ak_fbx_u64 Count;
 } ak_fbx_v3_array;
 
 typedef struct ak_fbx_polygon {
@@ -87,13 +85,14 @@ typedef struct ak_fbx_polygon {
 
 typedef struct ak_fbx_polygon_array {
     ak_fbx_polygon* Ptr;
-    ak_fbx_u32      Count;
+    ak_fbx_u64      Count;
 } ak_fbx_polygon_array;
 
 typedef struct ak_fbx_polygons {
     ak_fbx_polygon_array PolygonArray;
     ak_fbx_s32_array     VertexIndices;
     ak_fbx_s32_array     NormalIndices;
+    ak_fbx_s32_array     MaterialIndices;
 } ak_fbx_polygons;
 
 typedef enum ak_fbx_node_type {
@@ -101,8 +100,9 @@ typedef enum ak_fbx_node_type {
     AK_FBX_NODE_TYPE_GEOMETRY
 } ak_fbx_node_type;
 
-typedef struct ak_fbx_node {
+struct ak_fbx_node {
     ak_fbx_node_type    Type;
+    ak_fbx_u32          Unused__Padding0;
     ak_fbx_string       Name;
     ak_fbx_m4x3         GlobalTransform;
     ak_fbx_m4x3         LocalTransform;
@@ -111,11 +111,22 @@ typedef struct ak_fbx_node {
     struct ak_fbx_node* LastChild;
     struct ak_fbx_node* PrevSibling;
     struct ak_fbx_node* NextSibling;
-} ak_fbx_node;
+};
+
+struct ak_fbx_material {
+    ak_fbx_string Name;
+    /*todo: Need to figure out the best way to parse material parameters
+      with textures and various other input parameters (is their a list?)*/
+};
+
+typedef struct ak_fbx_material_array {
+    ak_fbx_material** Ptr;
+    ak_fbx_u64        Count;
+} ak_fbx_material_array;
 
 typedef struct ak_fbx_node_array {
     ak_fbx_node** Ptr;
-    ak_fbx_u32    Count;
+    ak_fbx_u64    Count;
 } ak_fbx_node_array;
 
 typedef struct ak_fbx_uv_map {
@@ -126,26 +137,27 @@ typedef struct ak_fbx_uv_map {
 
 typedef struct ak_fbx_uv_map_array {
     ak_fbx_uv_map* Ptr;
-    ak_fbx_u32     Count;
+    ak_fbx_u64     Count;
 } ak_fbx_uv_map_array;
 
-typedef struct ak_fbx_geometry {
-    ak_fbx_node*        Node;
-    ak_fbx_v3_array     Vertices;
-    ak_fbx_v3_array     Normals;
-    ak_fbx_polygons     Polygons;
-    ak_fbx_uv_map_array UVMaps;
-} ak_fbx_geometry;
+struct ak_fbx_geometry {
+    ak_fbx_node*          Node;
+    ak_fbx_v3_array       Vertices;
+    ak_fbx_v3_array       Normals;
+    ak_fbx_polygons       Polygons;
+    ak_fbx_uv_map_array   UVMaps;
+};
 
 typedef struct ak_fbx_geometry_array {
     ak_fbx_geometry** Ptr;
-    ak_fbx_u32        Count;
+    ak_fbx_u64        Count;
 } ak_fbx_geometry_array;
 
 typedef struct ak_fbx_scene {
     ak_fbx_node*          RootNode;
     ak_fbx_node_array     Nodes;
     ak_fbx_geometry_array Geometries;
+    ak_fbx_material_array Materials;
 } ak_fbx_scene;
 
 AKFBXDEF ak_fbx_scene* AK_FBX_Load_From_Memory(const void* Buffer, ak_fbx_u64 Length, void* UserData);
@@ -157,15 +169,16 @@ AKFBXDEF ak_fbx_scene* AK_FBX_Load_From_File(FILE* File, void* UserData);
 
 AKFBXDEF void AK_FBX_Free(ak_fbx_scene* Scene);
 
-//Node utils
-AKFBXDEF ak_fbx_geometry* AK_FBX_Node_Get_Geometry(ak_fbx_node* Node);
+/*Node utils*/
+AKFBXDEF ak_fbx_geometry*      AK_FBX_Node_Get_Geometry(ak_fbx_node* Node);
+AKFBXDEF ak_fbx_material_array AK_FBX_Node_Get_Materials(ak_fbx_node* Node);
 
-//If thread local storage is supported, this is thread safe
-//If thread local storage is not supported, this is not thread safe
-//If AK_FBX_NO_ERROR_MESSAGE is defined, this returns null
+/*If thread local storage is supported, this is thread safe
+  If thread local storage is not supported, this is not thread safe
+  If AK_FBX_NO_ERROR_MESSAGE is defined, this returns null*/
 AKFBXDEF const char* AK_FBX_Error_Message(void);
 
-//Math util functions
+/*Math util functions*/
 AKFBXDEF void AK_FBX_V3_Zero(ak_fbx_v3* V);
 AKFBXDEF void AK_FBX_V3(ak_fbx_v3* V, double x, double y, double z);
 AKFBXDEF void AK_FBX_M4x3_Identity(ak_fbx_m4x3* M);
@@ -174,11 +187,7 @@ AKFBXDEF void AK_FBX_M4x3_Identity(ak_fbx_m4x3* M);
 }
 #endif
 
-#ifdef _MSC_VER
-#pragma warning(pop)
-#endif
-
-#endif //AK_FBX_H
+#endif /*AK_FBX_H*/
 
 #ifdef AK_FBX_IMPLEMENTATION
 
@@ -241,16 +250,6 @@ AKFBXDEF void AK_FBX_M4x3_Identity(ak_fbx_m4x3* M);
 #define AK_FBX_ASSERT(x) assert(x)
 #endif
 
-#ifdef _MSC_VER
-#pragma warning(push)
-#pragma warning(disable : 4062 4820 4996 5045)
-#endif
-
-#ifdef __GNUC__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wswitch"
-#endif
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -262,8 +261,10 @@ extern "C" {
 #endif
 
 #define AK_FBX__DEFAULT_ALIGNMENT (sizeof(void*)*2)
+#define AK_FBX__Invalid_Default_Case() default: { AK_FBX_ASSERT(0); } break
+#define AK_FBX__Not_Implemented() AK_FBX_ASSERT(0)
 
-//0.01745329251 is PI/180
+/*0.01745329251 is PI/180*/
 #define AK_FBX__To_Radians(degrees) ((degrees)*0.01745329251)
 
 #define AK_FBX__SLL_Push_Back(First, Last, Node) (!First ? (First = Last = Node) : (Last->Next = Node, Last = Node))
@@ -290,12 +291,12 @@ enum {
    #define AK_FBX__Error(x,y)  AK_FBX__Error(x)
 #endif
 
-static bool AK_FBX__Str_Cmp_Raw(const char* StrA, const char* StrB, size_t N) {
+static int AK_FBX__Str_Cmp_Raw(const char* StrA, const char* StrB, size_t N) {
     return AK_FBX_STRNCMP(StrA, StrB, N) == 0;
 }
 
-static bool AK_FBX__Str_Cmp(ak_fbx_string String, const char* Str, size_t N) {
-    if(String.Size != N) return false;
+static int AK_FBX__Str_Cmp(ak_fbx_string String, const char* Str, size_t N) {
+    if(String.Size != N) return 0;
     return AK_FBX__Str_Cmp_Raw(String.Str, Str, N);
 }
 
@@ -427,7 +428,7 @@ static void* AK_FBX__Arena_Push_Alignment(ak_fbx__arena* Arena, size_t Size, siz
 
     ak_fbx__arena_block* Block = AK_FBX__Arena_Get_Current_Block(Arena, Size);
     if(!Block) {
-        size_t BlockSize = 1024*1024; //Default is 1MB
+        size_t BlockSize = 1024*1024; /*Default is 1MB*/
         if(Size > BlockSize) {
             BlockSize = Size;
         }
@@ -476,25 +477,25 @@ typedef struct ak_fbx__stream {
     ak_fbx_u64 At;
 } ak_fbx__stream;
 
-static inline ak_fbx_s8 AK_FBX__Stream_Is_Valid(ak_fbx__stream* Stream) {
+static ak_fbx_s8 AK_FBX__Stream_Is_Valid(ak_fbx__stream* Stream) {
     return (Stream->At < Stream->Length);
 }
 
-static inline const void* AK_FBX__Stream_Peek(ak_fbx__stream* Stream) {
+static const void* AK_FBX__Stream_Peek(ak_fbx__stream* Stream) {
     if(Stream->At >= Stream->Length) {
         return ak_fbx__nullptr;
     }
     return Stream->Stream+Stream->At;
 }
 
-static inline void AK_FBX__Stream_Skip(ak_fbx__stream* Stream, ak_fbx_u64 Offset) {
+static void AK_FBX__Stream_Skip(ak_fbx__stream* Stream, ak_fbx_u64 Offset) {
     if(Offset) {
         AK_FBX_ASSERT(Stream->At < Stream->Length);
         Stream->At += Offset;
     }
 }
 
-static inline const void* AK_FBX__Stream_Consume(ak_fbx__stream* Stream, ak_fbx_u64 Size) {
+static const void* AK_FBX__Stream_Consume(ak_fbx__stream* Stream, ak_fbx_u64 Size) {
     if(!Size) {
         return ak_fbx__nullptr;
     }
@@ -505,29 +506,29 @@ static inline const void* AK_FBX__Stream_Consume(ak_fbx__stream* Stream, ak_fbx_
     return Result;
 }
 
-static inline ak_fbx_u8 AK_FBX__Stream_Consume8(ak_fbx__stream* Stream) {
-    //Prevent strict aliasing via memcpy
+static ak_fbx_u8 AK_FBX__Stream_Consume8(ak_fbx__stream* Stream) {
+    /*Prevent strict aliasing via memcpy*/
     ak_fbx_u8 Result;
     AK_FBX_MEMCPY(&Result, AK_FBX__Stream_Consume(Stream, sizeof(ak_fbx_u8)), sizeof(ak_fbx_u8));
     return Result;
 }
 
-static inline ak_fbx_u16 AK_FBX__Stream_Consume16(ak_fbx__stream* Stream) {
-    //Prevent strict aliasing via memcpy
+static ak_fbx_u16 AK_FBX__Stream_Consume16(ak_fbx__stream* Stream) {
+    /*Prevent strict aliasing via memcpy*/
     ak_fbx_u16 Result;
     AK_FBX_MEMCPY(&Result, AK_FBX__Stream_Consume(Stream, sizeof(ak_fbx_u16)), sizeof(ak_fbx_u16));
     return Result;
 }
 
-static inline ak_fbx_u32 AK_FBX__Stream_Consume32(ak_fbx__stream* Stream) {
-    //Prevent strict aliasing via memcpy
+static ak_fbx_u32 AK_FBX__Stream_Consume32(ak_fbx__stream* Stream) {
+    /*Prevent strict aliasing via memcpy*/
     ak_fbx_u32 Result;
     AK_FBX_MEMCPY(&Result, AK_FBX__Stream_Consume(Stream, sizeof(ak_fbx_u32)), sizeof(ak_fbx_u32));
     return Result;
 }
 
-static inline ak_fbx_u64 AK_FBX__Stream_Consume64(ak_fbx__stream* Stream) {
-    //Prevent strict aliasing via memcpy
+static ak_fbx_u64 AK_FBX__Stream_Consume64(ak_fbx__stream* Stream) {
+    /*Prevent strict aliasing via memcpy*/
     ak_fbx_u64 Result;
     AK_FBX_MEMCPY(&Result, AK_FBX__Stream_Consume(Stream, sizeof(ak_fbx_u64)), sizeof(ak_fbx_u64));
     return Result;
@@ -549,8 +550,8 @@ static ak_fbx__buffer AK_FBX__Make_Buffer(ak_fbx__arena* Arena, const void* Buff
     return Result;
 }
 
-static ak_fbx_string AK_FBX__Make_String(ak_fbx__arena* Arena, const char* Str, ak_fbx_u32 StrLength) {
-    char* Buffer = (char*)AK_FBX__Arena_Push(Arena, (StrLength+1)*sizeof(char));
+static ak_fbx_string AK_FBX__Make_String(ak_fbx__arena* Arena, const char* Str, ak_fbx_u64 StrLength) {
+    char* Buffer = (char*)AK_FBX__Arena_Push(Arena, (size_t)((StrLength+1)*sizeof(char)));
     Buffer[StrLength] = 0;
     AK_FBX_STRNCPY(Buffer, Str, StrLength);
 
@@ -632,7 +633,8 @@ typedef struct ak_fbx__parsing_node {
     struct ak_fbx__parsing_node* NextSibling;
 } ak_fbx__parsing_node;
 
-void DEBUG_Print_Property(const ak_fbx__property* Property) {
+#ifdef AK_FBX_DEBUG_PRINT
+void AK_FBX_DEBUG_Print_Property(const ak_fbx__property* Property) {
     switch(Property->Type) {
 
         case AK_FBX__PROPERTY_TYPE_BOOL: {
@@ -668,11 +670,12 @@ void DEBUG_Print_Property(const ak_fbx__property* Property) {
         } break;
 
         case AK_FBX__PROPERTY_TYPE_STRING: {
-            printf("%.*s", Property->Data.String.Size, Property->Data.String.Str);
+            printf("%.*s", (int)Property->Data.String.Size, Property->Data.String.Str);
         } break;
 
         case AK_FBX__PROPERTY_TYPE_BOOL_ARRAY: {
-            for(ak_fbx_u32 i = 0; i < Property->Data.BoolArray.Count; i++) {
+            ak_fbx_u32 i;
+            for(i = 0; i < Property->Data.BoolArray.Count; i++) {
                 if(Property->Data.BoolArray.Ptr[i]) {
                     printf("true");
                 } else {
@@ -685,7 +688,8 @@ void DEBUG_Print_Property(const ak_fbx__property* Property) {
         } break;
 
         case AK_FBX__PROPERTY_TYPE_S32_ARRAY: {
-            for(ak_fbx_u32 i = 0; i < Property->Data.S32Array.Count; i++) {
+            ak_fbx_u32 i;
+            for(i = 0; i < Property->Data.S32Array.Count; i++) {
                 printf("%d", Property->Data.S32Array.Ptr[i]);
                 if(i != Property->Data.S32Array.Count-1) 
                     printf(", ");  
@@ -693,7 +697,8 @@ void DEBUG_Print_Property(const ak_fbx__property* Property) {
         } break;
 
         case AK_FBX__PROPERTY_TYPE_F32_ARRAY: {
-            for(ak_fbx_u32 i = 0; i < Property->Data.F32Array.Count; i++) {
+            ak_fbx_u32 i;
+            for(i = 0; i < Property->Data.F32Array.Count; i++) {
                 printf("%f", Property->Data.F32Array.Ptr[i]);
                 if(i != Property->Data.F32Array.Count-1) 
                     printf(", ");  
@@ -701,7 +706,8 @@ void DEBUG_Print_Property(const ak_fbx__property* Property) {
         } break;
 
         case AK_FBX__PROPERTY_TYPE_S64_ARRAY: {
-            for(ak_fbx_u32 i = 0; i < Property->Data.S64Array.Count; i++) {
+            ak_fbx_u32 i;
+            for(i = 0; i < Property->Data.S64Array.Count; i++) {
                 printf("%lld", Property->Data.S64Array.Ptr[i]);
                 if(i != Property->Data.S64Array.Count-1) 
                     printf(", ");  
@@ -709,7 +715,8 @@ void DEBUG_Print_Property(const ak_fbx__property* Property) {
         } break;
 
         case AK_FBX__PROPERTY_TYPE_F64_ARRAY: {
-            for(ak_fbx_u32 i = 0; i < Property->Data.F64Array.Count; i++) {
+            ak_fbx_u32 i;
+            for(i = 0; i < Property->Data.F64Array.Count; i++) {
                 printf("%f", Property->Data.F64Array.Ptr[i]);
                 if(i != Property->Data.F64Array.Count-1) 
                     printf(", ");  
@@ -718,24 +725,30 @@ void DEBUG_Print_Property(const ak_fbx__property* Property) {
     }
 }
 
-void DEBUG_Print_Node_Name(ak_fbx__parsing_node* Node, int Level) {
-    for(int LevelIndex = 0; LevelIndex < Level; LevelIndex++) {
+void AK_FBX_DEBUG_Print_Node(ak_fbx__parsing_node* Node, int Level) {
+    int LevelIndex;
+    for(LevelIndex = 0; LevelIndex < Level; LevelIndex++) {
         printf("\t");
     }
     
-    printf("%.*s: ", Node->Name.Size, Node->Name.Str);
+    printf("%.*s: ", (int)Node->Name.Size, Node->Name.Str);
     
-    for(ak_fbx_u32 PropertyIndex = 0; PropertyIndex < Node->Properties.Count; PropertyIndex++) {
-        DEBUG_Print_Property(&Node->Properties.Ptr[PropertyIndex]);
+    ak_fbx_u32 PropertyIndex;
+    for(PropertyIndex = 0; PropertyIndex < Node->Properties.Count; PropertyIndex++) {
+        AK_FBX_DEBUG_Print_Property(&Node->Properties.Ptr[PropertyIndex]);
         if(PropertyIndex != Node->Properties.Count-1)
             printf(", ");   
     }
 
     printf("\n");
-    for(ak_fbx__parsing_node* Child = Node->FirstChild; Child; Child = Child->NextSibling) {
-        DEBUG_Print_Node_Name(Child, Level+1);
+    ak_fbx__parsing_node* Child;
+    for(Child = Node->FirstChild; Child; Child = Child->NextSibling) {
+        AK_FBX_DEBUG_Print_Node(Child, Level+1);
     }
 }
+#else
+#define AK_FBX_DEBUG_Print_Node(...)
+#endif
  
 static void AK_FBX__Parsing_Node_Add_Child(ak_fbx__parsing_node* Parent, ak_fbx__parsing_node* Child) {
     Child->Parent = Parent;
@@ -785,62 +798,62 @@ typedef enum ak_fbx__binary_node_status {
 
 #define AK_FBX__BINARY_READ_WORD(stream) Is64Bit ? AK_FBX__Stream_Consume64(stream) : AK_FBX__Stream_Consume32(stream)
 
-//Copy zlib from stb_image.h
-//https://github.com/nothings/stb/blob/master/stb_image.h
+/*Copy zlib from stb_image.h
+  https://github.com/nothings/stb/blob/master/stb_image.h */
 static int ak_fbx__stbi_zlib_decode_buffer(char *obuffer, int olen, const char *ibuffer, int ilen);
 
 static ak_fbx_s8 AK_FBX__Decompress_ZLib(void* OutputBuffer, ak_fbx_u32 OutputLength, const void* InputBuffer, ak_fbx_u32 InputLength) {
-    //TODO: Should we do some validation on the compression length 
+    /*TODO: Should we do some validation on the compression length*/ 
     return ak_fbx__stbi_zlib_decode_buffer((char*)OutputBuffer, (int)OutputLength, (const char*)InputBuffer, (int)InputLength) != -1;
 }
 
 static ak_fbx_s8 AK_FBX__Binary_Read_Property(ak_fbx__stream* Stream, ak_fbx__property* Property, ak_fbx__arena* Arena) {
     if(!AK_FBX__Stream_Is_Valid(Stream)) {
-        //TODO: Diagnostic and error logging
+        /*TODO: Diagnostic and error logging*/
         return ak_fbx__false;
     }
 
     ak_fbx_u8 Type = AK_FBX__Stream_Consume8(Stream);
     switch(Type) {
-        //16 bit signed integer
+        /*16 bit signed integer*/
         case 'Y': {
             Property->Type = AK_FBX__PROPERTY_TYPE_S16;
-            Property->Data.S16 = AK_FBX__Stream_Consume16(Stream);
+            Property->Data.S16 = (ak_fbx_s16)AK_FBX__Stream_Consume16(Stream);
         } break;
 
-        //1 bit bool flag
+        /*1 bit bool flag*/
         case 'C': {
             Property->Type = AK_FBX__PROPERTY_TYPE_BOOL;
-            Property->Data.Bool = AK_FBX__Stream_Consume8(Stream); 
+            Property->Data.Bool = (ak_fbx_s8)AK_FBX__Stream_Consume8(Stream); 
         } break;
 
-        //32 bit signed integer
+        /*32 bit signed integer*/
         case 'I': {
             Property->Type = AK_FBX__PROPERTY_TYPE_S32;
-            Property->Data.S32 = AK_FBX__Stream_Consume32(Stream);
+            Property->Data.S32 = (ak_fbx_s32)AK_FBX__Stream_Consume32(Stream);
         } break;
 
-        //32 bit floating point
+        /*32 bit floating point*/
         case 'F': {
-            //Prevent strict aliasing via memcpy
+            /*Prevent strict aliasing via memcpy*/
             Property->Type = AK_FBX__PROPERTY_TYPE_F32;
             AK_FBX_MEMCPY(&Property->Data.F32, AK_FBX__Stream_Consume(Stream, sizeof(float)), sizeof(float));
         } break;
 
-        //64 bit floating point
+        /*64 bit floating point*/
         case 'D': {
-            //Prevent strict aliasing via memcpy
+            /*Prevent strict aliasing via memcpy*/
             Property->Type = AK_FBX__PROPERTY_TYPE_F64;
             AK_FBX_MEMCPY(&Property->Data.F64, AK_FBX__Stream_Consume(Stream, sizeof(double)), sizeof(double));
         } break;
 
-        //64 bit signed integer
+        /*64 bit signed integer*/
         case 'L': {
             Property->Type = AK_FBX__PROPERTY_TYPE_S64;
-            Property->Data.S64 = AK_FBX__Stream_Consume64(Stream); 
+            Property->Data.S64 = (ak_fbx_s64)AK_FBX__Stream_Consume64(Stream); 
         } break;
 
-        //Raw binary data
+        /*Raw binary data*/
         case 'R': {
             ak_fbx_u32 BufferLength = AK_FBX__Stream_Consume32(Stream);
             const void* Buffer = AK_FBX__Stream_Consume(Stream, BufferLength);
@@ -857,7 +870,7 @@ static ak_fbx_s8 AK_FBX__Binary_Read_Property(ak_fbx__stream* Stream, ak_fbx__pr
             Property->Data.String = AK_FBX__Make_String(Arena, Str, StrLength);
         } break;
 
-        //Array section
+        /*Array section*/
         case 'b':
         case 'c':
         case 'f':
@@ -897,20 +910,20 @@ static ak_fbx_s8 AK_FBX__Binary_Read_Property(ak_fbx__stream* Stream, ak_fbx__pr
 ;
             
             if(Encoding == 0) {
-                //Normal length array
+                /*Normal length array*/
                 if(UncompressedLength != CompressedLength) {
-                    //TODO: Diagnostic and error logging
+                    /*TODO: Diagnostic and error logging*/
                     return ak_fbx__false; 
                 }
 
                 AK_FBX_MEMCPY(UncompressedBuffer, CompressedBuffer, UncompressedLength);
             } else if(Encoding == 1) {
-                //GZip encoding array
+                /*GZip encoding array*/
                 if(!AK_FBX__Decompress_ZLib(UncompressedBuffer, UncompressedLength, CompressedBuffer, CompressedLength)) {
                     return ak_fbx__false;
                 }
             } else {
-                //TODO: Diagnostic and error logging
+                /*TODO: Diagnostic and error logging*/
                 return ak_fbx__false;
             }
 
@@ -953,13 +966,13 @@ static ak_fbx_s8 AK_FBX__Binary_Read_Property(ak_fbx__stream* Stream, ak_fbx__pr
         } break;
 
         default: {
-            //TODO: Diagnostic and error logging
+            /*TODO: Diagnostic and error logging*/
             return ak_fbx__false; 
         } break;
     }
 
     if(Stream->At > Stream->Length) {
-        //TODO: Diagnostic and error logging
+        /*TODO: Diagnostic and error logging*/
         return ak_fbx__false;
     }
 
@@ -967,27 +980,28 @@ static ak_fbx_s8 AK_FBX__Binary_Read_Property(ak_fbx__stream* Stream, ak_fbx__pr
 }
 
 static ak_fbx__binary_node_status AK_FBX__Binary_Read_Node(ak_fbx__stream* Stream, ak_fbx__parsing_node* Node, ak_fbx__arena* Arena, ak_fbx_s8 Is64Bit) {
-    // The first word always contains the node end offset
+    /* The first word always contains the node end offset */
     ak_fbx_u64 EndOffset = AK_FBX__BINARY_READ_WORD(Stream);
 
-    //Sometimes the end offset is 0, which occurs when there is a strange
-    //footer in the file. Doesn't seem like any readable information is in that file.
+    /*Sometimes the end offset is 0, which occurs when there is a strange
+      footer in the file. Doesn't seem like any readable information is in 
+      that file. */
     if(!EndOffset) {
         return AK_FBX__BINARY_NODE_STATUS_TERMINATE;
     }
 
     if(EndOffset > Stream->Length) {
-        //TODO: Diagnostic and error logging
+        /*TODO: Diagnostic and error logging*/
         return AK_FBX__BINARY_NODE_STATUS_ERROR;
     } else if(EndOffset < Stream->At) {
-        //TODO: Diagnostic and error logging
+        /*TODO: Diagnostic and error logging*/
         return AK_FBX__BINARY_NODE_STATUS_ERROR;  
     }
 
-    // The second word contains the number of properties in the node
+    /* The second word contains the number of properties in the node */
     ak_fbx_u64 PropertyCount = AK_FBX__BINARY_READ_WORD(Stream);
 
-    // The third word contains the length of the property list
+    /* The third word contains the length of the property list */
     ak_fbx_u64 PropertyLength = AK_FBX__BINARY_READ_WORD(Stream);
 
     ak_fbx_u8 NodeNameLength = AK_FBX__Stream_Consume8(Stream);
@@ -996,7 +1010,7 @@ static ak_fbx__binary_node_status AK_FBX__Binary_Read_Node(ak_fbx__stream* Strea
     Node->Name = AK_FBX__Make_String(Arena, NodeName, NodeNameLength);
     
     if((Stream->At+PropertyLength) > Stream->Length) {
-        //TODO: Diagnostic and error logging
+        /*TODO: Diagnostic and error logging*/
         return AK_FBX__BINARY_NODE_STATUS_ERROR;
     }
 
@@ -1017,7 +1031,7 @@ static ak_fbx__binary_node_status AK_FBX__Binary_Read_Node(ak_fbx__stream* Strea
     }
 
     if(PropertyStream.Length != PropertyStream.At) {
-        //TODO: Diagnostic and error logging
+        /*TODO: Diagnostic and error logging*/
         return AK_FBX__BINARY_NODE_STATUS_ERROR;
     }
 
@@ -1025,12 +1039,12 @@ static ak_fbx__binary_node_status AK_FBX__Binary_Read_Node(ak_fbx__stream* Strea
 
     AK_FBX__Stream_Skip(Stream, PropertyLength);
 
-    //At the end of each nested node, there is a null record to indicate that subnodes exist.
+    /*At the end of each nested node, there is a null record to indicate that subnodes exist.*/
     size_t SentinelBlockLength = Is64Bit ? (sizeof(ak_fbx_u64)*3 + 1) : (sizeof(ak_fbx_u32)*3+1);
 
     if(Stream->At < EndOffset) {
         if(EndOffset-Stream->At < SentinelBlockLength) {
-            //TODO: Diagnostic and error logging
+            /*TODO: Diagnostic and error logging*/
             return AK_FBX__BINARY_NODE_STATUS_ERROR;
         }
 
@@ -1050,14 +1064,15 @@ static ak_fbx__binary_node_status AK_FBX__Binary_Read_Node(ak_fbx__stream* Strea
 
         Stream->At = NestedStream.At;
         if(!AK_FBX__Stream_Is_Valid(Stream)) {
-            //TODO: Diagnostic and error logging
+            /*TODO: Diagnostic and error logging*/
             return AK_FBX__BINARY_NODE_STATUS_ERROR;
         }
 
-        for (size_t i = 0; i < SentinelBlockLength; i++) {
+        size_t i;
+        for (i = 0; i < SentinelBlockLength; i++) {
             const ak_fbx_u8* At = Stream->Stream+Stream->At;
             if(At[i] != '\0') {
-                //TODO: Diagnostic and error logging
+                /*TODO: Diagnostic and error logging*/
                 return AK_FBX__BINARY_NODE_STATUS_ERROR;
             }
         }
@@ -1066,7 +1081,7 @@ static ak_fbx__binary_node_status AK_FBX__Binary_Read_Node(ak_fbx__stream* Strea
     }
 
     if(Stream->At != EndOffset) {
-        //TODO: Diagnostic and error logging
+        /*TODO: Diagnostic and error logging*/
         return AK_FBX__BINARY_NODE_STATUS_ERROR;
     }
 
@@ -1088,7 +1103,7 @@ static ak_fbx__parsing_node* AK_FBX__Parse(ak_fbx__arena* Arena, const void* Buf
         AK_FBX__Stream_Skip(&Stream, 23);
 
         if(!AK_FBX__Stream_Is_Valid(&Stream)) {
-            //TODO: Diagnostic and error logging.
+            /*TODO: Diagnostic and error logging.*/
             return ak_fbx__nullptr;
         }
         
@@ -1100,7 +1115,7 @@ static ak_fbx__parsing_node* AK_FBX__Parse(ak_fbx__arena* Arena, const void* Buf
             ak_fbx__binary_node_status Status = AK_FBX__Binary_Read_Node(&Stream, ChildNode, Arena, Is64Bit);
 
             if(Status == AK_FBX__BINARY_NODE_STATUS_ERROR) {
-                //TODO: Diagnostic and error logging.
+                /*TODO: Diagnostic and error logging.*/
                 return ak_fbx__nullptr;
             }
 
@@ -1112,7 +1127,7 @@ static ak_fbx__parsing_node* AK_FBX__Parse(ak_fbx__arena* Arena, const void* Buf
         }
 
     } else {
-        //FBX file is not binary
+        /*FBX file is not binary*/
         AK_FBX_ASSERT(!"Not Implemented!");
     }
 
@@ -1127,10 +1142,10 @@ typedef struct ak_fbx_scene__impl {
 
 typedef struct ak_fbx_node__impl {
     ak_fbx_node Node;
-
     union {
         ak_fbx_geometry* Geometry;
     } Object;
+    ak_fbx_material_array Materials;
 } ak_fbx_node__impl;
 
 static void AK_FBX__Node_Add_Child(ak_fbx_node__impl* Parent, ak_fbx_node__impl* Child) {
@@ -1139,9 +1154,9 @@ static void AK_FBX__Node_Add_Child(ak_fbx_node__impl* Parent, ak_fbx_node__impl*
 }
 
 static ak_fbx_u32 AK_FBX__Hash_U64(ak_fbx_u64 Key) {
-    Key = (~Key) + (Key << 18); // Key = (Key << 18) - Key - 1;
+    Key = (~Key) + (Key << 18); /* Key = (Key << 18) - Key - 1; */
     Key = Key ^ (Key >> 31);
-    Key = Key * 21; // Key = (Key + (Key << 2)) + (Key << 4);
+    Key = Key * 21; /* Key = (Key + (Key << 2)) + (Key << 4); */
     Key = Key ^ (Key >> 11);
     Key = Key + (Key << 6);
     Key = Key ^ (Key >> 22);
@@ -1222,7 +1237,8 @@ static ak_fbx__id_ptr_map AK_FBX__ID_Ptr_Map_Create(ak_fbx__arena* Arena, ak_fbx
     Result.ItemCapacity = ItemCapacity;
     Result.Count = 0;
 
-    for(ak_fbx_u32 SlotIndex = 0; SlotIndex < SlotCapacity; SlotIndex++) {
+    ak_fbx_u32 SlotIndex;
+    for(SlotIndex = 0; SlotIndex < SlotCapacity; SlotIndex++) {
         ak_fbx__hash_slot Slot;
         Slot.Hash = 0;
         Slot.ItemIndex = (ak_fbx_u32)-1;
@@ -1263,7 +1279,7 @@ static ak_fbx_u32 AK_FBX__ID_Ptr_Map_Find_Slot(ak_fbx__id_ptr_map* Map, ak_fbx_s
 }
 
 static void AK_FBX__ID_Ptr_Map_Add(ak_fbx__id_ptr_map* Map, ak_fbx_s64 Key, void* Ptr) {
-    ak_fbx_u32 Hash = AK_FBX__Hash_U64(Key);
+    ak_fbx_u32 Hash = AK_FBX__Hash_U64((ak_fbx_u64)Key);
     AK_FBX_ASSERT(AK_FBX__ID_Ptr_Map_Find_Slot(Map, Key, Hash) == -1);
 
     ak_fbx_u32 SlotMask = Map->SlotCapacity-1;
@@ -1284,7 +1300,7 @@ static void AK_FBX__ID_Ptr_Map_Add(ak_fbx__id_ptr_map* Map, ak_fbx_s64 Key, void
 }
 
 static void* AK_FBX__ID_Ptr_Map_Get(ak_fbx__id_ptr_map* Map, ak_fbx_s64 Key) {
-    ak_fbx_u32 Hash = AK_FBX__Hash_U64(Key);
+    ak_fbx_u32 Hash = AK_FBX__Hash_U64((ak_fbx_u64)Key);
     ak_fbx_u32 Slot = AK_FBX__ID_Ptr_Map_Find_Slot(Map, Key, Hash);
     if(Slot == (ak_fbx_u32)-1) {
         return ak_fbx__nullptr;
@@ -1295,11 +1311,13 @@ static void* AK_FBX__ID_Ptr_Map_Get(ak_fbx__id_ptr_map* Map, ak_fbx_s64 Key) {
 typedef struct ak_fbx__definitions {
     ak_fbx_u32 ModelCount;
     ak_fbx_u32 GeometryCount;
+    ak_fbx_u32 MaterialCount;
 } ak_fbx__definitions;
 
 typedef enum ak_fbx__object_type {
     AK_FBX__OBJECT_TYPE_NODE,
     AK_FBX__OBJECT_TYPE_GEOMETRY,
+    AK_FBX__OBJECT_TYPE_MATERIAL,
     AK_FBX__OBJECT_TYPE_COUNT
 } ak_fbx__object_type;
 
@@ -1311,14 +1329,16 @@ typedef struct ak_fbx__object {
 typedef struct ak_fbx__objects {
     ak_fbx_u32         NodeCount;
     ak_fbx_u32         GeometryCount;
+    ak_fbx_u32         MaterialCount;
     ak_fbx_node__impl* Nodes;
     ak_fbx_geometry*   Geometries;
+    ak_fbx_material*   Materials;
     ak_fbx__id_ptr_map ObjectIDMap;
 } ak_fbx__objects;
 
 static ak_fbx_s8 AK_FBX__Validate_Objects(ak_fbx__objects* Objects) {
     if(!Objects->Nodes) {
-        //TODO: Diagnostic and error logging
+        /*TODO: Diagnostic and error logging*/
         return ak_fbx__false;
     }
 
@@ -1326,7 +1346,8 @@ static ak_fbx_s8 AK_FBX__Validate_Objects(ak_fbx__objects* Objects) {
 }
 
 static ak_fbx_s32 AK_FBX__Parse_Count(ak_fbx__parsing_node* ParsingNode) {
-    for(ak_fbx__parsing_node* Child = ParsingNode->FirstChild; Child; Child = Child->NextSibling) {
+    ak_fbx__parsing_node* Child;
+    for(Child = ParsingNode->FirstChild; Child; Child = Child->NextSibling) {
         if(AK_FBX__Str_Cmp(Child->Name, AK_FBX__STR_LIT_EXPAND("Count"))) {
             ak_fbx_s32 Count = AK_FBX__Property_Get_S32(AK_FBX__Get_Property(Child, 0));
             return Count;
@@ -1337,47 +1358,54 @@ static ak_fbx_s32 AK_FBX__Parse_Count(ak_fbx__parsing_node* ParsingNode) {
 }
 
 static void AK_FBX__Parse_Definitions(ak_fbx__definitions* Definitions, ak_fbx__parsing_node* DefintionNode) {
-    //TODO: Might need to parse the version and determine if different version have different formats
+    /*TODO: Might need to parse the version and determine if different 
+      version have different formats*/
 
-    for(ak_fbx__parsing_node* ParsingNode = DefintionNode->FirstChild; ParsingNode; ParsingNode = ParsingNode->NextSibling) {
+    ak_fbx__parsing_node* ParsingNode;
+    for(ParsingNode = DefintionNode->FirstChild; ParsingNode; ParsingNode = ParsingNode->NextSibling) {
         if(AK_FBX__Str_Cmp(ParsingNode->Name, AK_FBX__STR_LIT_EXPAND("ObjectType"))) {
             ak_fbx_string TypeStr = AK_FBX__Property_Get_Str(AK_FBX__Get_Property(ParsingNode, 0));
             if(AK_FBX__Str_Cmp(TypeStr, AK_FBX__STR_LIT_EXPAND("Model"))) {
                 Definitions->ModelCount = (ak_fbx_u32)AK_FBX__Parse_Count(ParsingNode);
             } else if(AK_FBX__Str_Cmp(TypeStr, AK_FBX__STR_LIT_EXPAND("Geometry"))) {
                 Definitions->GeometryCount = (ak_fbx_u32)AK_FBX__Parse_Count(ParsingNode);
+            } else if(AK_FBX__Str_Cmp(TypeStr, AK_FBX__STR_LIT_EXPAND("Material"))) {
+                Definitions->MaterialCount = (ak_fbx_u32)AK_FBX__Parse_Count(ParsingNode);
             }
         }
     }
 }
 
 static void AK_FBX__Parse_Model(ak_fbx__objects* Objects, ak_fbx__parsing_node* ModelNode, ak_fbx__arena* TempArena, ak_fbx__arena* Arena) {
-    //TODO: Might need to parse the version and determine if different version have different formats
+    /*TODO: Might need to parse the version and determine if different 
+      version have different formats */
 
     ak_fbx_node__impl* NodeImpl = &Objects->Nodes[Objects->NodeCount++];
     ak_fbx_node* Node = &NodeImpl->Node;
     
-    //Model nodes start have an ID property, a name property, and a type property
+    /*Model nodes start have an ID property, a name property, and a type property*/
     ak_fbx_s64 ID = AK_FBX__Property_Get_S64(AK_FBX__Get_Property(ModelNode, 0));
     ak_fbx_string String = AK_FBX__Property_Get_Str(AK_FBX__Get_Property(ModelNode, 1));
 
     Node->Name = AK_FBX__Make_String(Arena, String.Str, String.Size);
     
-    //Always set the global to the identity matrix. We will update it later after parsing the scene
+    /*Always set the global to the identity matrix. We will update it later after parsing the scene*/
     AK_FBX_M4x3_Identity(&Node->GlobalTransform);
 
     ak_fbx_v3 LclTranslation; AK_FBX_V3_Zero(&LclTranslation);
     ak_fbx_v3 LclRotation; AK_FBX_V3_Zero(&LclRotation);
     ak_fbx_v3 LclScale; AK_FBX_V3(&LclScale, 1.0, 1.0, 1.0);
 
-    for(ak_fbx__parsing_node* ChildNode = ModelNode->FirstChild; ChildNode; ChildNode = ChildNode->NextSibling) {
-        //TODO: Might need to parse the version and determine if different version have different formats
+    ak_fbx__parsing_node* ChildNode;
+    for(ChildNode = ModelNode->FirstChild; ChildNode; ChildNode = ChildNode->NextSibling) {
+        /*TODO: Might need to parse the version and determine if different version have different formats*/
 
-        //Find the properties
+        /*Find the properties*/
         if(AK_FBX__Str_Cmp(ChildNode->Name, AK_FBX__STR_LIT_EXPAND("Properties70"))) {
             ak_fbx__parsing_node* PropertiesNode = ChildNode;
 
-            for(ak_fbx__parsing_node* PropertyNode = PropertiesNode->FirstChild; PropertyNode; PropertyNode = PropertyNode->NextSibling) {
+            ak_fbx__parsing_node* PropertyNode;
+            for(PropertyNode = PropertiesNode->FirstChild; PropertyNode; PropertyNode = PropertyNode->NextSibling) {
                 ak_fbx_string PropertyName = AK_FBX__Property_Get_Str(AK_FBX__Get_Property(PropertyNode, 0));
 
                 if(AK_FBX__Str_Cmp(PropertyName, AK_FBX__STR_LIT_EXPAND("Lcl Translation"))) {
@@ -1441,7 +1469,8 @@ typedef struct ak_fbx_polygon__list {
 
 typedef enum ak_fbx__mapping_information_type {
     AK_FBX__MAPPING_INFORMATION_TYPE_UNKNOWN,
-    AK_FBX__MAPPING_INFORMATION_TYPE_BY_POLYGON_VERTEX
+    AK_FBX__MAPPING_INFORMATION_TYPE_BY_POLYGON_VERTEX,
+    AK_FBX__MAPPING_INFORMATION_TYPE_BY_POLYGON
 } ak_fbx__mapping_information_type;
 
 typedef enum ak_fbx__reference_information_type {
@@ -1450,13 +1479,16 @@ typedef enum ak_fbx__reference_information_type {
     AK_FBX__REFERENCE_INFORMATION_TYPE_INDEX_TO_DIRECT
 } ak_fbx__reference_information_type;
 
+
+
 static void AK_FBX__Parse_Normal(ak_fbx_geometry* Geometry, ak_fbx__parsing_node* NormalLayer, ak_fbx__arena* Arena) {
-    //TODO: Might need to parse the version and determine if different version have different formats
+    /*TODO: Might need to parse the version and determine if different version have different formats*/
 
     ak_fbx__mapping_information_type MappingInformationType = AK_FBX__MAPPING_INFORMATION_TYPE_UNKNOWN;
     ak_fbx__reference_information_type ReferenceInformationType = AK_FBX__REFERENCE_INFORMATION_TYPE_UNKNOWN;
 
-    for(ak_fbx__parsing_node* Node = NormalLayer->FirstChild; Node; Node = Node->NextSibling) {
+    ak_fbx__parsing_node* Node;
+    for(Node = NormalLayer->FirstChild; Node; Node = Node->NextSibling) {
         if(AK_FBX__Str_Cmp(Node->Name, AK_FBX__STR_LIT_EXPAND("MappingInformationType"))) {
             ak_fbx_string Value = AK_FBX__Property_Get_Str(AK_FBX__Get_Property(Node, 0));
             if(AK_FBX__Str_Cmp(Value, AK_FBX__STR_LIT_EXPAND("ByPolygonVertex"))) {
@@ -1492,11 +1524,22 @@ static void AK_FBX__Parse_Normal(ak_fbx_geometry* Geometry, ak_fbx__parsing_node
                         Geometry->Polygons.NormalIndices.Count = Geometry->Polygons.VertexIndices.Count;
                         Geometry->Polygons.NormalIndices.Ptr = AK_FBX__Arena_Push_Array(Arena, Geometry->Polygons.NormalIndices.Count, ak_fbx_s32);
 
-                        for(ak_fbx_s32 i = 0; i < (ak_fbx_s32)Geometry->Polygons.NormalIndices.Count; i++) {
+                        ak_fbx_s32 i;
+                        for(i = 0; i < (ak_fbx_s32)Geometry->Polygons.NormalIndices.Count; i++) {
                             Geometry->Polygons.NormalIndices.Ptr[i] = i;
                         }     
                     }
                 } break;
+
+                case AK_FBX__MAPPING_INFORMATION_TYPE_BY_POLYGON: {
+                    AK_FBX__Not_Implemented();
+                } break;
+
+                case AK_FBX__MAPPING_INFORMATION_TYPE_UNKNOWN: {
+                    AK_FBX_ASSERT(0);
+                } break;
+
+                AK_FBX__Invalid_Default_Case();
             }
         } else if(AK_FBX__Str_Cmp(Node->Name, AK_FBX__STR_LIT_EXPAND("NormalIndex"))) {
             AK_FBX_ASSERT(ReferenceInformationType == AK_FBX__REFERENCE_INFORMATION_TYPE_INDEX_TO_DIRECT);
@@ -1512,13 +1555,15 @@ static void AK_FBX__Parse_Normal(ak_fbx_geometry* Geometry, ak_fbx__parsing_node
 }
 
 static void AK_FBX__Parse_UV_Map(ak_fbx_geometry* Geometry, ak_fbx__parsing_node* UVLayer, ak_fbx__arena* Arena) {
-    //TODO: Might need to parse the version and determine if different version have different formats
+    /*TODO: Might need to parse the version and determine if different 
+      version have different formats*/
     ak_fbx_uv_map* Map = &Geometry->UVMaps.Ptr[Geometry->UVMaps.Count++];
 
     ak_fbx__mapping_information_type MappingInformationType = AK_FBX__MAPPING_INFORMATION_TYPE_UNKNOWN;
     ak_fbx__reference_information_type ReferenceInformationType = AK_FBX__REFERENCE_INFORMATION_TYPE_UNKNOWN;
     
-    for(ak_fbx__parsing_node* Node = UVLayer->FirstChild; Node; Node = Node->NextSibling) {
+    ak_fbx__parsing_node* Node;
+    for(Node = UVLayer->FirstChild; Node; Node = Node->NextSibling) {
         if(AK_FBX__Str_Cmp(Node->Name, AK_FBX__STR_LIT_EXPAND("Name"))) {
             ak_fbx_string Value = AK_FBX__Property_Get_Str(AK_FBX__Get_Property(Node, 0));
             Map->Name = AK_FBX__Make_String(Arena, Value.Str, Value.Size);
@@ -1557,11 +1602,22 @@ static void AK_FBX__Parse_UV_Map(ak_fbx_geometry* Geometry, ak_fbx__parsing_node
                         Map->UVIndices.Count = Geometry->Polygons.VertexIndices.Count;
                         Map->UVIndices.Ptr = AK_FBX__Arena_Push_Array(Arena, Map->UVIndices.Count, ak_fbx_s32);
 
-                        for(ak_fbx_s32 i = 0; i < (ak_fbx_s32)Map->UVIndices.Count; i++) {
+                        ak_fbx_s32 i;
+                        for(i = 0; i < (ak_fbx_s32)Map->UVIndices.Count; i++) {
                             Map->UVIndices.Ptr[i] = i;
                         }     
                     }
                 } break;
+
+                case AK_FBX__MAPPING_INFORMATION_TYPE_BY_POLYGON: {
+                    AK_FBX__Not_Implemented();
+                } break;
+
+                case AK_FBX__MAPPING_INFORMATION_TYPE_UNKNOWN: {
+                    AK_FBX_ASSERT(0);
+                } break;
+
+                AK_FBX__Invalid_Default_Case();
             }
         } else if(AK_FBX__Str_Cmp(Node->Name, AK_FBX__STR_LIT_EXPAND("UVIndex"))) {
             AK_FBX_ASSERT(ReferenceInformationType == AK_FBX__REFERENCE_INFORMATION_TYPE_INDEX_TO_DIRECT);
@@ -1576,17 +1632,90 @@ static void AK_FBX__Parse_UV_Map(ak_fbx_geometry* Geometry, ak_fbx__parsing_node
     }
 }
 
+static void AK_FBX__Parse_Material_Layer(ak_fbx_geometry* Geometry, ak_fbx__parsing_node* MaterialLayer, ak_fbx__arena* Arena) {
+    /*TODO: Might need to parse the version and determine if different 
+      version have different formats*/
+
+    ak_fbx__mapping_information_type MappingInformationType = AK_FBX__MAPPING_INFORMATION_TYPE_UNKNOWN;
+    ak_fbx__reference_information_type ReferenceInformationType = AK_FBX__REFERENCE_INFORMATION_TYPE_UNKNOWN;
+
+    ak_fbx__parsing_node* Node;
+    for(Node = MaterialLayer->FirstChild; Node; Node = Node->NextSibling) {
+        if(AK_FBX__Str_Cmp(Node->Name, AK_FBX__STR_LIT_EXPAND("MappingInformationType"))) {
+            ak_fbx_string Value = AK_FBX__Property_Get_Str(AK_FBX__Get_Property(Node, 0));
+            if(AK_FBX__Str_Cmp(Value, AK_FBX__STR_LIT_EXPAND("ByPolygonVertex"))) {
+                MappingInformationType = AK_FBX__MAPPING_INFORMATION_TYPE_BY_POLYGON_VERTEX;
+            }
+            else if(AK_FBX__Str_Cmp(Value, AK_FBX__STR_LIT_EXPAND("ByPolygon"))) {
+                MappingInformationType = AK_FBX__MAPPING_INFORMATION_TYPE_BY_POLYGON;
+            } else {
+                AK_FBX_ASSERT(!"Not Implemented");
+            }
+        } else if(AK_FBX__Str_Cmp(Node->Name, AK_FBX__STR_LIT_EXPAND("ReferenceInformationType"))) {
+            ak_fbx_string Value = AK_FBX__Property_Get_Str(AK_FBX__Get_Property(Node, 0));
+            if(AK_FBX__Str_Cmp(Value, AK_FBX__STR_LIT_EXPAND("Direct"))) {
+                ReferenceInformationType = AK_FBX__REFERENCE_INFORMATION_TYPE_DIRECT;
+            } else if(AK_FBX__Str_Cmp(Value, AK_FBX__STR_LIT_EXPAND("IndexToDirect"))) {
+                ReferenceInformationType = AK_FBX__REFERENCE_INFORMATION_TYPE_INDEX_TO_DIRECT;
+            } else {
+                AK_FBX_ASSERT(!"Not Implemented");
+            } 
+        } else if(AK_FBX__Str_Cmp(Node->Name, AK_FBX__STR_LIT_EXPAND("Materials"))) {
+            AK_FBX_ASSERT(MappingInformationType != AK_FBX__MAPPING_INFORMATION_TYPE_UNKNOWN);
+            AK_FBX_ASSERT(ReferenceInformationType != AK_FBX__REFERENCE_INFORMATION_TYPE_UNKNOWN);
+            switch(MappingInformationType) {
+                case AK_FBX__MAPPING_INFORMATION_TYPE_BY_POLYGON_VERTEX: {
+                    AK_FBX__Not_Implemented();
+                } break;
+
+                case AK_FBX__MAPPING_INFORMATION_TYPE_BY_POLYGON: {
+                    ak_fbx_s32_array Materials = AK_FBX__Property_Get_S32_Array(AK_FBX__Get_Property(Node, 0));
+                    if(ReferenceInformationType == AK_FBX__REFERENCE_INFORMATION_TYPE_INDEX_TO_DIRECT) {
+                        ak_fbx_s32_array* MaterialIndices = &Geometry->Polygons.MaterialIndices;
+                        ak_fbx_polygon_array* PolygonArray = &Geometry->Polygons.PolygonArray; 
+
+                        AK_FBX_ASSERT(Materials.Count == PolygonArray->Count);
+
+                        MaterialIndices->Count = Geometry->Polygons.VertexIndices.Count;
+                        MaterialIndices->Ptr = AK_FBX__Arena_Push_Array(Arena, MaterialIndices->Count, ak_fbx_s32);
+
+                        /*This is by polygon so each material index will map to one polygon*/
+                        ak_fbx_s32 i;
+                        for(i = 0; i < (ak_fbx_s32)PolygonArray->Count; i++) {
+                            ak_fbx_polygon* Polygon = PolygonArray->Ptr + i;
+                            ak_fbx_u32 j = Polygon->IndexArrayOffset;
+                            ak_fbx_u32 Count = j+Polygon->IndexArrayCount;
+                            for(; j < Count; j++) {
+                                AK_FBX_ASSERT(j < Geometry->Polygons.VertexIndices.Count);
+                                MaterialIndices->Ptr[j] = Materials.Ptr[i];
+                            }
+                        }     
+                    }
+                } break;
+
+                case AK_FBX__MAPPING_INFORMATION_TYPE_UNKNOWN: {
+                    AK_FBX_ASSERT(0);
+                } break;
+
+                AK_FBX__Invalid_Default_Case();
+            }
+        }
+    }
+}
+
 static void AK_FBX__Parse_Geometry(ak_fbx__objects* Objects, ak_fbx__parsing_node* GeometryNode, ak_fbx__arena* TempArena, ak_fbx__arena* Arena) {
-    //TODO: Might need to parse the version and determine if different version have different formats
+    /*TODO: Might need to parse the version and determine if different 
+      version have different formats*/
 
     ak_fbx_geometry* Geometry = &Objects->Geometries[Objects->GeometryCount++];
     ak_fbx_u32 UVMapCount = 0;
 
-    for(ak_fbx__parsing_node* Node = GeometryNode->FirstChild; Node; Node = Node->NextSibling) {
+    ak_fbx__parsing_node* Node;
+    for(Node = GeometryNode->FirstChild; Node; Node = Node->NextSibling) {
         if(AK_FBX__Str_Cmp(Node->Name, AK_FBX__STR_LIT_EXPAND("Vertices"))) {
             ak_fbx__f64_array Vertices = AK_FBX__Property_Get_F64_Array(AK_FBX__Get_Property(Node, 0));
 
-            //3 components per vertex
+            /*3 components per vertex*/
             Geometry->Vertices.Count = Vertices.Count/3;
             Geometry->Vertices.Ptr = AK_FBX__Arena_Push_Array(Arena, Geometry->Vertices.Count, ak_fbx_v3);
             AK_FBX_MEMCPY(Geometry->Vertices.Ptr, Vertices.Ptr, Vertices.Count*sizeof(double));
@@ -1594,13 +1723,15 @@ static void AK_FBX__Parse_Geometry(ak_fbx__objects* Objects, ak_fbx__parsing_nod
             ak_fbx_s32_array PolygonVertexIndex = AK_FBX__Property_Get_S32_Array(AK_FBX__Get_Property(Node, 0));
 
             Geometry->Polygons.VertexIndices.Count = PolygonVertexIndex.Count;
-            Geometry->Polygons.VertexIndices.Ptr = AK_FBX__Arena_Push_Array(Arena, PolygonVertexIndex.Count, ak_fbx_s32);
+            Geometry->Polygons.VertexIndices.Ptr = AK_FBX__Arena_Push_Array(TempArena, PolygonVertexIndex.Count, ak_fbx_s32);
 
             ak_fbx_polygon__list Polygons;
             AK_FBX_MEMSET(&Polygons, 0, sizeof(ak_fbx_polygon__list));
 
             ak_fbx_u32 StartPolygonOffset = 0;
-            for(ak_fbx_u32 Index = 0; Index < PolygonVertexIndex.Count; Index++) {
+
+            ak_fbx_u32 Index;
+            for(Index = 0; Index < PolygonVertexIndex.Count; Index++) {
                 if(PolygonVertexIndex.Ptr[Index] < 0) {
 
                     Geometry->Polygons.VertexIndices.Ptr[Index] = ~PolygonVertexIndex.Ptr[Index];
@@ -1622,24 +1753,27 @@ static void AK_FBX__Parse_Geometry(ak_fbx__objects* Objects, ak_fbx__parsing_nod
             Geometry->Polygons.PolygonArray.Ptr = AK_FBX__Arena_Push_Array(Arena, Polygons.Count, ak_fbx_polygon);
 
             ak_fbx_u32 PolygonIndex = 0;
-            for(ak_fbx_polygon__entry* Entry = Polygons.First; Entry; Entry = Entry->Next) {
+            ak_fbx_polygon__entry* Entry;
+            for(Entry = Polygons.First; Entry; Entry = Entry->Next) {
                 Geometry->Polygons.PolygonArray.Ptr[PolygonIndex++] = Entry->Polygon;
             }
         } else if(AK_FBX__Str_Cmp(Node->Name, AK_FBX__STR_LIT_EXPAND("LayerElementNormal"))) {
             AK_FBX__Parse_Normal(Geometry, Node, Arena);
         } else if(AK_FBX__Str_Cmp(Node->Name, AK_FBX__STR_LIT_EXPAND("LayerElementUV"))) {
             UVMapCount++;
+        } else if(AK_FBX__Str_Cmp(Node->Name, AK_FBX__STR_LIT_EXPAND("LayerElementMaterial"))) {
+            AK_FBX__Parse_Material_Layer(Geometry, Node, Arena);
         }
     }
 
     Geometry->UVMaps.Ptr = AK_FBX__Arena_Push_Array(Arena, UVMapCount, ak_fbx_uv_map);
-    for(ak_fbx__parsing_node* Node = GeometryNode->FirstChild; Node; Node = Node->NextSibling) {
+    for(Node = GeometryNode->FirstChild; Node; Node = Node->NextSibling) {
         if(AK_FBX__Str_Cmp(Node->Name, AK_FBX__STR_LIT_EXPAND("LayerElementUV"))) {
             AK_FBX__Parse_UV_Map(Geometry, Node, Arena);
         }
     }
 
-    //Geometry nodes start have an ID property
+    /*Geometry nodes start have an ID property*/
     ak_fbx_s64 ID = AK_FBX__Property_Get_S64(AK_FBX__Get_Property(GeometryNode, 0));
 
     ak_fbx__object* Object = AK_FBX__Arena_Push_Struct(TempArena, ak_fbx__object);
@@ -1648,14 +1782,32 @@ static void AK_FBX__Parse_Geometry(ak_fbx__objects* Objects, ak_fbx__parsing_nod
     AK_FBX__ID_Ptr_Map_Add(&Objects->ObjectIDMap, ID, Object);
 }
 
+static void AK_FBX__Parse_Material(ak_fbx__objects* Objects, ak_fbx__parsing_node* MaterialNode, ak_fbx__arena* TempArena, ak_fbx__arena* Arena) {
+    ak_fbx_material* Material = &Objects->Materials[Objects->MaterialCount++];
+    ak_fbx_s64 ID = AK_FBX__Property_Get_S64(AK_FBX__Get_Property(MaterialNode, 0));
+    ak_fbx_string String = AK_FBX__Property_Get_Str(AK_FBX__Get_Property(MaterialNode, 1));
+    Material->Name = AK_FBX__Make_String(Arena, String.Str, String.Size);
+
+    /*TODO: Parse some more information about the material for more complex importers*/
+
+    ak_fbx__object* Object = AK_FBX__Arena_Push_Struct(TempArena, ak_fbx__object);
+    Object->Type = AK_FBX__OBJECT_TYPE_MATERIAL;
+    Object->Ptr  = Material;
+    AK_FBX__ID_Ptr_Map_Add(&Objects->ObjectIDMap, ID, Object);
+}
+
 static void AK_FBX__Parse_Objects(ak_fbx__objects* Objects, ak_fbx__parsing_node* ObjectNode, ak_fbx__arena* TempArena, ak_fbx__arena* Arena) {
-    for(ak_fbx__parsing_node* ParsingNode = ObjectNode->FirstChild; ParsingNode; ParsingNode = ParsingNode->NextSibling) {
+    ak_fbx__parsing_node* ParsingNode;
+    for(ParsingNode = ObjectNode->FirstChild; ParsingNode; ParsingNode = ParsingNode->NextSibling) {
         if(AK_FBX__Str_Cmp(ParsingNode->Name, AK_FBX__STR_LIT_EXPAND("Model"))) {
             AK_FBX_ASSERT(Objects->Nodes);
             AK_FBX__Parse_Model(Objects, ParsingNode, TempArena, Arena);
         } else if(AK_FBX__Str_Cmp(ParsingNode->Name, AK_FBX__STR_LIT_EXPAND("Geometry"))) {
             AK_FBX_ASSERT(Objects->Geometries);
             AK_FBX__Parse_Geometry(Objects, ParsingNode, TempArena, Arena);
+        } else if(AK_FBX__Str_Cmp(ParsingNode->Name, AK_FBX__STR_LIT_EXPAND("Material"))) {
+            AK_FBX_ASSERT(Objects->Materials);
+            AK_FBX__Parse_Material(Objects, ParsingNode, TempArena, Arena);
         }
     }
 }
@@ -1664,7 +1816,7 @@ static void AK_FBX__Parse_Objects(ak_fbx__objects* Objects, ak_fbx__parsing_node
 typedef AK_FBX__CONNECT_OBJECTS_FUNC(ak_fbx__connect_object_funcs);
 
 static AK_FBX__CONNECT_OBJECTS_FUNC(AK_FBX__Connect_Nodes) {
-    //Parent child connection. NodeB is parent, NodeA is child
+    /*Parent child connection. NodeB is parent, NodeA is child*/
     ak_fbx_node__impl* NodeA = (ak_fbx_node__impl*)ObjectA->Ptr;
     ak_fbx_node__impl* NodeB = (ak_fbx_node__impl*)ObjectB->Ptr;
     AK_FBX__Node_Add_Child(NodeB, NodeA);
@@ -1674,19 +1826,31 @@ static AK_FBX__CONNECT_OBJECTS_FUNC(AK_FBX__Connect_Geometry_And_Node) {
     ak_fbx_geometry* GeometryA = (ak_fbx_geometry*)ObjectA->Ptr;
     ak_fbx_node__impl* NodeB = (ak_fbx_node__impl*)ObjectB->Ptr;
 
+    /*Geometry cannot be bound to node already, this shouldn't be possible*/
+    AK_FBX_ASSERT(!NodeB->Object.Geometry);
+
     NodeB->Node.Type = AK_FBX_NODE_TYPE_GEOMETRY;
     NodeB->Object.Geometry = GeometryA;
     GeometryA->Node = (ak_fbx_node*)NodeB;
 }
 
+static AK_FBX__CONNECT_OBJECTS_FUNC(AK_FBX__Connect_Material_And_Node) {
+    /*Increment the material count for the first phase for connecting
+      materials with nodes. This is for memory allocation*/
+    ak_fbx_node__impl* NodeB = (ak_fbx_node__impl*)ObjectB->Ptr;
+    NodeB->Materials.Count++;
+}
+
 static ak_fbx__connect_object_funcs* AK_FBX__Connect_Objects_Funcs[AK_FBX__OBJECT_TYPE_COUNT][AK_FBX__OBJECT_TYPE_COUNT] = {
-    {AK_FBX__Connect_Nodes, ak_fbx__nullptr},
-    {AK_FBX__Connect_Geometry_And_Node, ak_fbx__nullptr}
+    {AK_FBX__Connect_Nodes, ak_fbx__nullptr, ak_fbx__nullptr},
+    {AK_FBX__Connect_Geometry_And_Node, ak_fbx__nullptr, ak_fbx__nullptr},
+    {AK_FBX__Connect_Material_And_Node, ak_fbx__nullptr, ak_fbx__nullptr}
 };
 
 static void AK_FBX__Parse_Connections(ak_fbx__parsing_node* ConnectionNode, ak_fbx__objects* Objects) {
-    for(ak_fbx__parsing_node* ParsingNode = ConnectionNode->FirstChild; ParsingNode; ParsingNode = ParsingNode->NextSibling) {
-        //ak_fbx_string ConnectionType = AK_FBX__Property_Get_Str(AK_FBX__Get_Property(ParsingNode, 0));
+    ak_fbx__parsing_node* ParsingNode;
+    for(ParsingNode = ConnectionNode->FirstChild; ParsingNode; ParsingNode = ParsingNode->NextSibling) {
+        /*ak_fbx_string ConnectionType = AK_FBX__Property_Get_Str(AK_FBX__Get_Property(ParsingNode, 0));*/
         ak_fbx_s64 AID = AK_FBX__Property_Get_S64(AK_FBX__Get_Property(ParsingNode, 1));
         ak_fbx_s64 BID = AK_FBX__Property_Get_S64(AK_FBX__Get_Property(ParsingNode, 2));
 
@@ -1698,8 +1862,47 @@ static void AK_FBX__Parse_Connections(ak_fbx__parsing_node* ConnectionNode, ak_f
     }
 }
 
+#define AK_FBX__POST_CONNECT_OBJECTS_FUNC(name) void name(ak_fbx__object* ObjectA, ak_fbx__object* ObjectB)
+typedef AK_FBX__POST_CONNECT_OBJECTS_FUNC(ak_fbx__post_connect_object_funcs);
+
+static AK_FBX__POST_CONNECT_OBJECTS_FUNC(AK_FBX__Post_Connect_Nodes) {
+    /*Do nothing*/
+}
+
+static AK_FBX__POST_CONNECT_OBJECTS_FUNC(AK_FBX__Post_Connect_Geometry_And_Node) {
+    /*Do nothing*/
+}
+
+static AK_FBX__POST_CONNECT_OBJECTS_FUNC(AK_FBX__Post_Connect_Material_And_Node) {
+    ak_fbx_node__impl* NodeB = (ak_fbx_node__impl*)ObjectB->Ptr;
+    NodeB->Materials.Ptr[NodeB->Materials.Count++] = (ak_fbx_material*)ObjectA->Ptr;
+}
+
+static ak_fbx__post_connect_object_funcs* AK_FBX__Post_Connect_Objects_Funcs[AK_FBX__OBJECT_TYPE_COUNT][AK_FBX__OBJECT_TYPE_COUNT] = {
+    {AK_FBX__Post_Connect_Nodes, ak_fbx__nullptr, ak_fbx__nullptr},
+    {AK_FBX__Post_Connect_Geometry_And_Node, ak_fbx__nullptr, ak_fbx__nullptr},
+    {AK_FBX__Post_Connect_Material_And_Node, ak_fbx__nullptr, ak_fbx__nullptr}
+};
+
+static void AK_FBX__Parse_Post_Connections(ak_fbx__parsing_node* ConnectionNode, ak_fbx__objects* Objects) {
+    ak_fbx__parsing_node* ParsingNode;
+    for(ParsingNode = ConnectionNode->FirstChild; ParsingNode; ParsingNode = ParsingNode->NextSibling) {
+        /*ak_fbx_string ConnectionType = AK_FBX__Property_Get_Str(AK_FBX__Get_Property(ParsingNode, 0));*/
+        ak_fbx_s64 AID = AK_FBX__Property_Get_S64(AK_FBX__Get_Property(ParsingNode, 1));
+        ak_fbx_s64 BID = AK_FBX__Property_Get_S64(AK_FBX__Get_Property(ParsingNode, 2));
+
+        ak_fbx__object* ObjectA = (ak_fbx__object*)AK_FBX__ID_Ptr_Map_Get(&Objects->ObjectIDMap, AID);
+        ak_fbx__object* ObjectB = (ak_fbx__object*)AK_FBX__ID_Ptr_Map_Get(&Objects->ObjectIDMap, BID);
+        if(ObjectA && ObjectB) {
+            AK_FBX__Post_Connect_Objects_Funcs[ObjectA->Type][ObjectB->Type](ObjectA, ObjectB);
+        }
+    }
+}
+
+
 static void AK_FBX__Get_Root_Node_ID(ak_fbx__parsing_node* ParsingNode, ak_fbx_s64* RootNodeID) {
-    for(ak_fbx__parsing_node* Child = ParsingNode->FirstChild; Child; Child = Child->NextSibling) {
+    ak_fbx__parsing_node* Child;
+    for(Child = ParsingNode->FirstChild; Child; Child = Child->NextSibling) {
         if(AK_FBX__Str_Cmp(Child->Name, AK_FBX__STR_LIT_EXPAND("RootNode"))) {
             *RootNodeID = AK_FBX__Property_Get_S64(AK_FBX__Get_Property(Child, 0));
             return;
@@ -1707,8 +1910,19 @@ static void AK_FBX__Get_Root_Node_ID(ak_fbx__parsing_node* ParsingNode, ak_fbx_s
     }
 }
 
+typedef struct {
+    ak_fbx_s32 VtxIdx;
+    ak_fbx_s32 MaterialIdx;
+} ak_fbx__material_index_map;
+
+static int AK_FBX__Material_Index_Map_Sort(const void* DataA, const void* DataB) {
+    const ak_fbx__material_index_map* IndexMapA = (const ak_fbx__material_index_map*)DataA;
+    const ak_fbx__material_index_map* IndexMapB = (const ak_fbx__material_index_map*)DataB;
+    return IndexMapA->MaterialIdx-IndexMapB->MaterialIdx;
+}
+
 static ak_fbx_s8 AK_FBX__Parse_Scene(ak_fbx_scene__impl* Scene, ak_fbx__parsing_node* RootParsingNode, ak_fbx__arena* TempArena) {
-    DEBUG_Print_Node_Name(RootParsingNode, 0);
+    AK_FBX_DEBUG_Print_Node(RootParsingNode, 0);
     
     ak_fbx__objects Objects;
     AK_FBX_MEMSET(&Objects, 0, sizeof(ak_fbx__objects));
@@ -1718,24 +1932,27 @@ static ak_fbx_s8 AK_FBX__Parse_Scene(ak_fbx_scene__impl* Scene, ak_fbx__parsing_
 
     ak_fbx_s64 RootNodeID = -1;
 
-    //Iterate first to get the scene data
-    for(ak_fbx__parsing_node* ParsingNode = RootParsingNode->FirstChild; ParsingNode; ParsingNode = ParsingNode->NextSibling) {
+    /*Iterate first to get the scene data*/
+    ak_fbx__parsing_node* ParsingNode;
+    for(ParsingNode = RootParsingNode->FirstChild; ParsingNode; ParsingNode = ParsingNode->NextSibling) {
         
         if(AK_FBX__Str_Cmp(ParsingNode->Name, AK_FBX__STR_LIT_EXPAND("Documents"))) {
-            for(ak_fbx__parsing_node* ChildNode = ParsingNode->FirstChild; ChildNode; ChildNode = ChildNode->NextSibling) {
+            
+            ak_fbx__parsing_node* ChildNode;
+            for(ChildNode = ParsingNode->FirstChild; ChildNode; ChildNode = ChildNode->NextSibling) {
                 if(AK_FBX__Str_Cmp(ChildNode->Name, AK_FBX__STR_LIT_EXPAND("Document"))) {
                     AK_FBX__Get_Root_Node_ID(ChildNode, &RootNodeID);
                 }
             }
         } else if(AK_FBX__Str_Cmp(ParsingNode->Name, AK_FBX__STR_LIT_EXPAND("Definitions"))) {
             if(RootNodeID == -1) {
-                //TODO: Diagnostic and error logging
+                /*TODO: Diagnostic and error logging*/
                 return ak_fbx__false;
             }
 
             AK_FBX__Parse_Definitions(&Definitions, ParsingNode);
 
-            //Plus one for the root node
+            /*Plus one for the root node*/
             ak_fbx_u32 ModelCount = Definitions.ModelCount+1;
             Objects.Nodes = AK_FBX__Arena_Push_Array(&Scene->Arena, ModelCount, ak_fbx_node__impl);
             AK_FBX_MEMSET(Objects.Nodes, 0, sizeof(ak_fbx_node__impl)*ModelCount);
@@ -1743,7 +1960,10 @@ static ak_fbx_s8 AK_FBX__Parse_Scene(ak_fbx_scene__impl* Scene, ak_fbx__parsing_
             Objects.Geometries = AK_FBX__Arena_Push_Array(&Scene->Arena, Definitions.GeometryCount, ak_fbx_geometry);
             AK_FBX_MEMSET(Objects.Geometries, 0, sizeof(ak_fbx_geometry)*Definitions.GeometryCount);
 
-            ak_fbx_u32 ObjectCount = ModelCount+Definitions.GeometryCount;
+            Objects.Materials = AK_FBX__Arena_Push_Array(&Scene->Arena, Definitions.MaterialCount, ak_fbx_material);
+            AK_FBX_MEMSET(Objects.Materials, 0, sizeof(ak_fbx_material)*Definitions.MaterialCount);
+
+            ak_fbx_u32 ObjectCount = ModelCount+Definitions.GeometryCount+Definitions.MaterialCount;
             Objects.ObjectIDMap = AK_FBX__ID_Ptr_Map_Create(TempArena, ObjectCount);
 
             ak_fbx_node__impl* RootNode = &Objects.Nodes[Objects.NodeCount++];
@@ -1768,22 +1988,37 @@ static ak_fbx_s8 AK_FBX__Parse_Scene(ak_fbx_scene__impl* Scene, ak_fbx__parsing_
             AK_FBX__Parse_Objects(&Objects, ParsingNode, TempArena, &Scene->Arena);
         } if(AK_FBX__Str_Cmp(ParsingNode->Name, AK_FBX__STR_LIT_EXPAND("Connections"))) {
             
-            //Minus one for the root node
+            /*Minus one for the root node*/
             if((Objects.NodeCount-1) != Definitions.ModelCount) {
-                //TODO: Diagnostic and error logging
+                /*TODO: Diagnostic and error logging*/
                 return ak_fbx__false;
             }
 
             if(Objects.GeometryCount != Definitions.GeometryCount) {
-                //TODO: Diagnostic and error logging
+                /*TODO: Diagnostic and error logging*/
+                return ak_fbx__false;
+            }
+
+            if(Objects.MaterialCount != Definitions.MaterialCount) {
+                /*TODO: Diagnostic and error logging*/
                 return ak_fbx__false;
             }
 
             AK_FBX__Parse_Connections(ParsingNode, &Objects);
+
+            ak_fbx_u32 i;
+            for(i = 0; i < Objects.NodeCount; i++) {
+                ak_fbx_node__impl* Node = Objects.Nodes + i;
+                Node->Materials.Ptr = AK_FBX__Arena_Push_Array(&Scene->Arena, Node->Materials.Count, ak_fbx_material*);
+                /*Reset the count after memory allocation so we can link the material now*/
+                Node->Materials.Count = 0;
+            }
+
+            AK_FBX__Parse_Post_Connections(ParsingNode, &Objects);
         }
     }
 
-    //If everything has succeeded, we can now build the global transform hierarchy
+    /*If everything has succeeded, we can now build the global transform hierarchy*/
     ak_fbx_node* RootNode = Scene->Base.RootNode;
 
     ak_fbx_u32 NodeStackIndex = 0;
@@ -1800,24 +2035,34 @@ static ak_fbx_s8 AK_FBX__Parse_Scene(ak_fbx_scene__impl* Scene, ak_fbx__parsing_
             Node->GlobalTransform = Node->LocalTransform;
         }
 
-        for(ak_fbx_node* ChildNode = Node->FirstChild; ChildNode; ChildNode = ChildNode->NextSibling) {
+        ak_fbx_node* ChildNode;
+        for(ChildNode = Node->FirstChild; ChildNode; ChildNode = ChildNode->NextSibling) {
             NodeStack[NodeStackIndex++] = ChildNode;
         }
     }
 
     Scene->Base.Nodes.Ptr = AK_FBX__Arena_Push_Array(&Scene->Arena, Objects.NodeCount, ak_fbx_node*);
     Scene->Base.Geometries.Ptr = AK_FBX__Arena_Push_Array(&Scene->Arena, Objects.GeometryCount, ak_fbx_geometry*);
+    Scene->Base.Materials.Ptr = AK_FBX__Arena_Push_Array(&Scene->Arena, Objects.MaterialCount, ak_fbx_material*);
 
-    for(ak_fbx_u32 NodeIndex = 0; NodeIndex < Objects.NodeCount; NodeIndex++) {
+    ak_fbx_u32 NodeIndex;
+    for(NodeIndex = 0; NodeIndex < Objects.NodeCount; NodeIndex++) {
         Scene->Base.Nodes.Ptr[NodeIndex] = (ak_fbx_node*)(Objects.Nodes + NodeIndex);
     }
 
-    for(ak_fbx_u32 GeometryIndex = 0; GeometryIndex < Objects.GeometryCount; GeometryIndex++) {
+    ak_fbx_u32 GeometryIndex;
+    for(GeometryIndex = 0; GeometryIndex < Objects.GeometryCount; GeometryIndex++) {
         Scene->Base.Geometries.Ptr[GeometryIndex] = Objects.Geometries + GeometryIndex;
+    }
+
+    ak_fbx_u32 MaterialIndex;
+    for(MaterialIndex = 0; MaterialIndex < Objects.MaterialCount; MaterialIndex++) {
+        Scene->Base.Materials.Ptr[MaterialIndex] = Objects.Materials + MaterialIndex;
     }
     
     Scene->Base.Nodes.Count = Objects.NodeCount;
     Scene->Base.Geometries.Count = Objects.GeometryCount;
+    Scene->Base.Materials.Count = Objects.MaterialCount;
 
     return ak_fbx__true;
 }
@@ -1847,7 +2092,7 @@ AKFBXDEF ak_fbx_scene* AK_FBX_Load_From_Memory(const void* Buffer, ak_fbx_u64 Le
 AKFBXDEF ak_fbx_scene* AK_FBX_Load(const char* Filename, void* UserData) {
     FILE* File = fopen(Filename, "rb");
     if(!File) {
-        //TODO: Diagnostic and error logging
+        /*TODO: Diagnostic and error logging*/
         return ak_fbx__nullptr;
     }
 
@@ -1859,18 +2104,18 @@ AKFBXDEF ak_fbx_scene* AK_FBX_Load(const char* Filename, void* UserData) {
 
 AKFBXDEF ak_fbx_scene* AK_FBX_Load_From_File(FILE* File, void* UserData) {
     fseek(File, 0, SEEK_END);
-    ak_fbx_s64 FileSize = ftell(File);
+    size_t FileSize = (size_t)ftell(File);
     fseek(File, 0, SEEK_SET);
 
     void* Buffer = AK_FBX_MALLOC(FileSize, UserData);
     if(!Buffer) {
-        //TODO: Diagnostic and error logging
+        /*TODO: Diagnostic and error logging*/
         return ak_fbx__nullptr;
     }
 
-    if(fread(Buffer, 1, FileSize, File) != (size_t)FileSize) {
+    if(fread(Buffer, 1, FileSize, File) != FileSize) {
         AK_FBX_FREE(Buffer, UserData);
-        //TODO: Diagnostic and error logging
+        /*TODO: Diagnostic and error logging*/
         return ak_fbx__nullptr;
     }
 
@@ -1889,21 +2134,28 @@ AKFBXDEF void AK_FBX_Free(ak_fbx_scene* Scene) {
     }
 }
 
-//Node utils
+/*Node utils*/
 AKFBXDEF ak_fbx_geometry* AK_FBX_Node_Get_Geometry(ak_fbx_node* _Node) {
     ak_fbx_node__impl* Node = (ak_fbx_node__impl*)_Node;
     if(Node->Node.Type != AK_FBX_NODE_TYPE_GEOMETRY) return ak_fbx__nullptr;
     return Node->Object.Geometry;
 }
 
-//If thread local storage is supported, this is thread safe
-//If thread local storage is not supported, this is not thread safe
-//If AK_FBX_NO_ERROR_MESSAGE is defined, this returns null
+AKFBXDEF ak_fbx_material_array AK_FBX_Node_Get_Materials(ak_fbx_node* _Node) {
+    static ak_fbx_material_array sEmptyResult = {0};
+    ak_fbx_node__impl* Node = (ak_fbx_node__impl*)_Node;
+    if(Node->Node.Type != AK_FBX_NODE_TYPE_GEOMETRY) return sEmptyResult;
+    return Node->Materials;
+}
+
+/*If thread local storage is supported, this is thread safe
+  If thread local storage is not supported, this is not thread safe
+  If AK_FBX_NO_ERROR_MESSAGE is defined, this returns null*/
 AKFBXDEF const char* AK_FBX_Error_Message(void) {
     return AK_FBX__G_Error_Message;
 }
 
-//~Math utility functions
+/*~Math utility functions*/
 AKFBXDEF void AK_FBX_V3_Zero(ak_fbx_v3* V) {
     V->Data[0] = 0;
     V->Data[1] = 0;
@@ -1923,7 +2175,7 @@ AKFBXDEF void AK_FBX_M4x3_Identity(ak_fbx_m4x3* M) {
     M->Data[8] = 1.0;
 }
 
-//~STB Image ZLib implementation (should never allocate memory!)
+/*~STB Image ZLib implementation (should never allocate memory!)*/
 
 #define AK_FBX__STBI_ASSERT AK_FBX_ASSERT
 #define ak_fbx__stbi__err(x, y) AK_FBX__Error(x, y)
@@ -1935,13 +2187,13 @@ typedef ak_fbx_u8  ak_fbx__stbi_uc;
 typedef ak_fbx_u16 ak_fbx__stbi__uint16;
 typedef ak_fbx_u32 ak_fbx__stbi__uint32;
 
-// fast-way is faster to check than jpeg huffman, but slow way is slower
-#define AK_FBX__STBI__ZFAST_BITS  9 // accelerate all cases in default tables
+/* fast-way is faster to check than jpeg huffman, but slow way is slower */
+#define AK_FBX__STBI__ZFAST_BITS  9 /* accelerate all cases in default tables */
 #define AK_FBX__STBI__ZFAST_MASK  ((1 << AK_FBX__STBI__ZFAST_BITS) - 1)
-#define AK_FBX__STBI__ZNSYMS 288 // number of symbols in literal/length alphabet
+#define AK_FBX__STBI__ZNSYMS 288 /* number of symbols in literal/length alphabet */
 
-// zlib-style huffman encoding
-// (jpegs packs from left, zlib from right, so can't share code)
+/* zlib-style huffman encoding
+   (jpegs packs from left, zlib from right, so can't share code) */
 typedef struct
 {
    ak_fbx__stbi__uint16 fast[1 << AK_FBX__STBI__ZFAST_BITS];
@@ -1964,8 +2216,8 @@ static int ak_fbx__stbi__bitreverse16(int n)
 static int ak_fbx__stbi__bit_reverse(int v, int bits)
 {
    AK_FBX__STBI_ASSERT(bits <= 16);
-   // to bit reverse n bits, reverse 16 and shift
-   // e.g. 11 bits, bit reverse and shift away 5
+   /* to bit reverse n bits, reverse 16 and shift
+      e.g. 11 bits, bit reverse and shift away 5*/
    return ak_fbx__stbi__bitreverse16(v) >> (16-bits);
 }
 
@@ -1974,7 +2226,7 @@ static int ak_fbx__stbi__zbuild_huffman(ak_fbx__stbi__zhuffman *z, const ak_fbx_
    int i,k=0;
    int code, next_code[16], sizes[17];
 
-   // DEFLATE spec for generating codes
+   /* DEFLATE spec for generating codes */
    AK_FBX__STBI_MEMSET(sizes, 0, sizeof(sizes));
    AK_FBX__STBI_MEMSET(z->fast, 0, sizeof(z->fast));
    for (i=0; i < num; ++i)
@@ -1991,11 +2243,11 @@ static int ak_fbx__stbi__zbuild_huffman(ak_fbx__stbi__zhuffman *z, const ak_fbx_
       code = (code + sizes[i]);
       if (sizes[i])
          if (code-1 >= (1 << i)) return ak_fbx__stbi__err("bad codelengths","Corrupt ZLIB");
-      z->maxcode[i] = code << (16-i); // preshift for inner loop
+      z->maxcode[i] = code << (16-i); /* preshift for inner loop */
       code <<= 1;
       k += sizes[i];
    }
-   z->maxcode[16] = 0x10000; // sentinel
+   z->maxcode[16] = 0x10000; /* sentinel */
    for (i=0; i < num; ++i) {
       int s = sizelist[i];
       if (s) {
@@ -2016,11 +2268,11 @@ static int ak_fbx__stbi__zbuild_huffman(ak_fbx__stbi__zhuffman *z, const ak_fbx_
    return 1;
 }
 
-// zlib-from-memory implementation for PNG reading
-//    because PNG allows splitting the zlib stream arbitrarily,
-//    and it's annoying structurally to have PNG call ZLIB call PNG,
-//    we require PNG read all the IDATs and combine them into a single
-//    memory buffer
+/* zlib-from-memory implementation for PNG reading
+      because PNG allows splitting the zlib stream arbitrarily,
+      and it's annoying structurally to have PNG call ZLIB call PNG,
+      we require PNG read all the IDATs and combine them into a single
+      memory buffer */
 
 typedef struct
 {
@@ -2043,7 +2295,7 @@ static int ak_fbx__stbi__zeof(ak_fbx__stbi__zbuf *z)
 
 static ak_fbx__stbi_uc ak_fbx__stbi__zget8(ak_fbx__stbi__zbuf *z)
 {
-   return ak_fbx__stbi__zeof(z) ? 0 : *z->zbuffer++;
+   return ak_fbx__stbi__zeof(z) ? (ak_fbx__stbi_uc)0 : *z->zbuffer++;
 }
 
 static void ak_fbx__stbi__fill_bits(ak_fbx__stbi__zbuf *z)
@@ -2071,17 +2323,17 @@ static unsigned int ak_fbx__stbi__zreceive(ak_fbx__stbi__zbuf *z, int n)
 static int ak_fbx__stbi__zhuffman_decode_slowpath(ak_fbx__stbi__zbuf *a, ak_fbx__stbi__zhuffman *z)
 {
    int b,s,k;
-   // not resolved by fast table, so compute it the slow way
-   // use jpeg approach, which requires MSbits at top
-   k = ak_fbx__stbi__bit_reverse(a->code_buffer, 16);
+   /* not resolved by fast table, so compute it the slow way
+      use jpeg approach, which requires MSbits at top */
+   k = ak_fbx__stbi__bit_reverse((int)a->code_buffer, 16);
    for (s=AK_FBX__STBI__ZFAST_BITS+1; ; ++s)
       if (k < z->maxcode[s])
          break;
-   if (s >= 16) return -1; // invalid code!
-   // code size is s, so:
+   if (s >= 16) return -1; /* invalid code! */
+   /* code size is s, so: */
    b = (k >> (16-s)) - z->firstcode[s] + z->firstsymbol[s];
-   if (b >= AK_FBX__STBI__ZNSYMS) return -1; // some data was corrupt somewhere!
-   if (z->size[b] != s) return -1;  // was originally an assert, but report failure instead.
+   if (b >= AK_FBX__STBI__ZNSYMS) return -1; /* some data was corrupt somewhere! */
+   if (z->size[b] != s) return -1;  /* was originally an assert, but report failure instead. */
    a->code_buffer >>= s;
    a->num_bits -= s;
    return z->value[b];
@@ -2126,7 +2378,7 @@ static int ak_fbx__stbi__parse_huffman_block(ak_fbx__stbi__zbuf *a)
    for(;;) {
       int z = ak_fbx__stbi__zhuffman_decode(a, &a->z_length);
       if (z < 256) {
-         if (z < 0) return ak_fbx__stbi__err("bad huffman code","Corrupt PNG"); // error in huffman codes
+         if (z < 0) return ak_fbx__stbi__err("bad huffman code","Corrupt PNG"); /* error in huffman codes */
          AK_FBX__STBI_ASSERT(zout < a->zout_end);
          *zout++ = (char) z;
       } else {
@@ -2136,12 +2388,12 @@ static int ak_fbx__stbi__parse_huffman_block(ak_fbx__stbi__zbuf *a)
             a->zout = zout;
             return 1;
          }
-         if (z >= 286) return ak_fbx__stbi__err("bad huffman code","Corrupt PNG"); // per DEFLATE, length codes 286 and 287 must not appear in compressed data
+         if (z >= 286) return ak_fbx__stbi__err("bad huffman code","Corrupt PNG"); /* per DEFLATE, length codes 286 and 287 must not appear in compressed data */
          z -= 257;
          len = ak_fbx__stbi__zlength_base[z];
          if (ak_fbx__stbi__zlength_extra[z]) len += ak_fbx__stbi__zreceive(a, ak_fbx__stbi__zlength_extra[z]);
          z = ak_fbx__stbi__zhuffman_decode(a, &a->z_distance);
-         if (z < 0 || z >= 30) return ak_fbx__stbi__err("bad huffman code","Corrupt PNG"); // per DEFLATE, distance codes 30 and 31 must not appear in compressed data
+         if (z < 0 || z >= 30) return ak_fbx__stbi__err("bad huffman code","Corrupt PNG"); /* per DEFLATE, distance codes 30 and 31 must not appear in compressed data */
          dist = ak_fbx__stbi__zdist_base[z];
          if (ak_fbx__stbi__zdist_extra[z]) dist += ak_fbx__stbi__zreceive(a, ak_fbx__stbi__zdist_extra[z]);
          if (zout - a->zout_start < dist) return ak_fbx__stbi__err("bad dist","Corrupt PNG");
@@ -2149,11 +2401,11 @@ static int ak_fbx__stbi__parse_huffman_block(ak_fbx__stbi__zbuf *a)
          AK_FBX__STBI_ASSERT(zout + len <= a->zout_end);
          
          p = (ak_fbx__stbi_uc *) (zout - dist);
-         if (dist == 1) { // run of one byte; common in images.
+         if (dist == 1) { /* run of one byte; common in images. */
             ak_fbx__stbi_uc v = *p;
-            if (len) { do *zout++ = v; while (--len); }
+            if (len) { do *zout++ = (char)v; while (--len); }
          } else {
-            if (len) { do *zout++ = *p++; while (--len); }
+            if (len) { do *zout++ = (char)*p++; while (--len); }
          }
       }
    }
@@ -2163,18 +2415,18 @@ static int ak_fbx__stbi__compute_huffman_codes(ak_fbx__stbi__zbuf *a)
 {
    static const ak_fbx__stbi_uc length_dezigzag[19] = { 16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15 };
    ak_fbx__stbi__zhuffman z_codelength;
-   ak_fbx__stbi_uc lencodes[286+32+137];//padding for maximum single op
+   ak_fbx__stbi_uc lencodes[286+32+137];/*padding for maximum single op*/
    ak_fbx__stbi_uc codelength_sizes[19];
    int i,n;
 
-   int hlit  = ak_fbx__stbi__zreceive(a,5) + 257;
-   int hdist = ak_fbx__stbi__zreceive(a,5) + 1;
-   int hclen = ak_fbx__stbi__zreceive(a,4) + 4;
+   int hlit  = (int)ak_fbx__stbi__zreceive(a,5) + 257;
+   int hdist = (int)ak_fbx__stbi__zreceive(a,5) + 1;
+   int hclen = (int)ak_fbx__stbi__zreceive(a,4) + 4;
    int ntot  = hlit + hdist;
 
    AK_FBX__STBI_MEMSET(codelength_sizes, 0, sizeof(codelength_sizes));
    for (i=0; i < hclen; ++i) {
-      int s = ak_fbx__stbi__zreceive(a,3);
+      int s = (int)ak_fbx__stbi__zreceive(a,3);
       codelength_sizes[length_dezigzag[i]] = (ak_fbx__stbi_uc) s;
    }
    if (!ak_fbx__stbi__zbuild_huffman(&z_codelength, codelength_sizes, 19)) return 0;
@@ -2188,18 +2440,18 @@ static int ak_fbx__stbi__compute_huffman_codes(ak_fbx__stbi__zbuf *a)
       else {
          ak_fbx__stbi_uc fill = 0;
          if (c == 16) {
-            c = ak_fbx__stbi__zreceive(a,2)+3;
+            c = (int)ak_fbx__stbi__zreceive(a,2)+3;
             if (n == 0) return ak_fbx__stbi__err("bad codelengths", "Corrupt PNG");
             fill = lencodes[n-1];
          } else if (c == 17) {
-            c = ak_fbx__stbi__zreceive(a,3)+3;
+            c = (int)ak_fbx__stbi__zreceive(a,3)+3;
          } else if (c == 18) {
-            c = ak_fbx__stbi__zreceive(a,7)+11;
+            c = (int)ak_fbx__stbi__zreceive(a,7)+11;
          } else {
             return ak_fbx__stbi__err("bad codelengths", "Corrupt PNG");
          }
          if (ntot - n < c) return ak_fbx__stbi__err("bad codelengths", "Corrupt PNG");
-         AK_FBX__STBI_MEMSET(lencodes+n, fill, c);
+         AK_FBX__STBI_MEMSET(lencodes+n, fill, (size_t)c);
          n += c;
       }
    }
@@ -2214,16 +2466,16 @@ static int ak_fbx__stbi__parse_uncompressed_block(ak_fbx__stbi__zbuf *a)
    ak_fbx__stbi_uc header[4];
    int len,nlen,k;
    if (a->num_bits & 7)
-      ak_fbx__stbi__zreceive(a, a->num_bits & 7); // discard
-   // drain the bit-packed data into header
+      ak_fbx__stbi__zreceive(a, a->num_bits & 7); /* discard */
+   /* drain the bit-packed data into header */
    k = 0;
    while (a->num_bits > 0) {
-      header[k++] = (ak_fbx__stbi_uc) (a->code_buffer & 255); // suppress MSVC run-time check
+      header[k++] = (ak_fbx__stbi_uc) (a->code_buffer & 255); /* suppress MSVC run-time check */
       a->code_buffer >>= 8;
       a->num_bits -= 8;
    }
    if (a->num_bits < 0) return ak_fbx__stbi__err("zlib corrupt","Corrupt PNG");
-   // now fill header the normal way
+   /* now fill header the normal way */
    while (k < 4)
       header[k++] = ak_fbx__stbi__zget8(a);
    len  = header[1] * 256 + header[0];
@@ -2231,7 +2483,7 @@ static int ak_fbx__stbi__parse_uncompressed_block(ak_fbx__stbi__zbuf *a)
    if (nlen != (len ^ 0xffff)) return ak_fbx__stbi__err("zlib corrupt","Corrupt PNG");
    if (a->zbuffer + len > a->zbuffer_end) return ak_fbx__stbi__err("read past buffer","Corrupt PNG");
    AK_FBX__STBI_ASSERT(a->zout + len <= a->zout_end);
-   AK_FBX__STBI_MEMCPY(a->zout, a->zbuffer, len);
+   AK_FBX__STBI_MEMCPY(a->zout, a->zbuffer, (size_t)len);
    a->zbuffer += len;
    a->zout += len;
    return 1;
@@ -2243,11 +2495,11 @@ static int ak_fbx__stbi__parse_zlib_header(ak_fbx__stbi__zbuf *a)
    int cm    = cmf & 15;
    /* int cinfo = cmf >> 4; */
    int flg   = ak_fbx__stbi__zget8(a);
-   if (ak_fbx__stbi__zeof(a)) return ak_fbx__stbi__err("bad zlib header","Corrupt PNG"); // zlib spec
-   if ((cmf*256+flg) % 31 != 0) return ak_fbx__stbi__err("bad zlib header","Corrupt PNG"); // zlib spec
-   if (flg & 32) return ak_fbx__stbi__err("no preset dict","Corrupt PNG"); // preset dictionary not allowed in png
-   if (cm != 8) return ak_fbx__stbi__err("bad compression","Corrupt PNG"); // DEFLATE required for png
-   // window = 1 << (8 + cinfo)... but who cares, we fully buffer output
+   if (ak_fbx__stbi__zeof(a)) return ak_fbx__stbi__err("bad zlib header","Corrupt PNG"); /* zlib spec */
+   if ((cmf*256+flg) % 31 != 0) return ak_fbx__stbi__err("bad zlib header","Corrupt PNG"); /* zlib spec */
+   if (flg & 32) return ak_fbx__stbi__err("no preset dict","Corrupt PNG"); /* preset dictionary not allowed in png */
+   if (cm != 8) return ak_fbx__stbi__err("bad compression","Corrupt PNG"); /* DEFLATE required for png */
+   /* window = 1 << (8 + cinfo)... but who cares, we fully buffer output */
    return 1;
 }
 
@@ -2288,15 +2540,15 @@ static int ak_fbx__stbi__parse_zlib(ak_fbx__stbi__zbuf *a, int parse_header)
    a->num_bits = 0;
    a->code_buffer = 0;
    do {
-      final = ak_fbx__stbi__zreceive(a,1);
-      type = ak_fbx__stbi__zreceive(a,2);
+      final = (int)ak_fbx__stbi__zreceive(a,1);
+      type = (int)ak_fbx__stbi__zreceive(a,2);
       if (type == 0) {
          if (!ak_fbx__stbi__parse_uncompressed_block(a)) return 0;
       } else if (type == 3) {
          return 0;
       } else {
          if (type == 1) {
-            // use fixed code lengths
+            /* use fixed code lengths */
             if (!ak_fbx__stbi__zbuild_huffman(&a->z_length  , ak_fbx__stbi__zdefault_length  , AK_FBX__STBI__ZNSYMS)) return 0;
             if (!ak_fbx__stbi__zbuild_huffman(&a->z_distance, ak_fbx__stbi__zdefault_distance,  32)) return 0;
          } else {
@@ -2333,12 +2585,4 @@ static int ak_fbx__stbi_zlib_decode_buffer(char *obuffer, int olen, char const *
 }
 #endif
 
-#ifdef _MSC_VER
-#pragma warning(pop)
-#endif
-
-#ifdef __GNUC__
-#pragma GCC diagnostic pop
-#endif
-
-#endif //AK_FBX_IMPLEMENTATION
+#endif /*AK_FBX_IMPLEMENTATION*/

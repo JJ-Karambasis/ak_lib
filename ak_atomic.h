@@ -431,6 +431,7 @@ typedef struct ak_async_spmc_queue_index32 {
     ak_atomic_u32 TopIndex;
     uint32_t*     Indices;
     uint32_t      Capacity;
+    uint32_t      Unused__Padding0;
 } ak_async_spmc_queue_index32;
 
 AKATOMICDEF void     AK_Async_SPMC_Queue_Index32_Init_Raw(ak_async_spmc_queue_index32* QueueIndex, uint32_t* IndicesPtr, uint32_t Capacity);

@@ -21,24 +21,22 @@ void Free_Memory(void* Memory, void* UserData) {
     }
 }
 
+#define AK_FBX_DEBUG_PRINT
 #define AK_FBX_MALLOC(size, user_data) Allocate_Memory(size, user_data)
 #define AK_FBX_FREE(ptr, user_data) Free_Memory(ptr, user_data)
 #include <ak_fbx.h>
 
-#pragma warning(disable : 5045)
-
-
 #include "utest.h"
 
-#include <stdbool.h>
-
 void DEBUG_PRINT_NODE(ak_fbx_node* Node, int Level) {
-    for(int LevelIndex = 0; LevelIndex < Level; LevelIndex++) {
+    int LevelIndex;
+    for(LevelIndex = 0; LevelIndex < Level; LevelIndex++) {
         printf("\t");
     }
-    printf("%.*s\n", Node->Name.Size, Node->Name.Str);
+    printf("%.*s\n", (int)Node->Name.Size, Node->Name.Str);
     
-    for(ak_fbx_node* Child = Node->FirstChild; Child; Child = Child->NextSibling) {
+    ak_fbx_node* Child;
+    for(Child = Node->FirstChild; Child; Child = Child->NextSibling) {
         DEBUG_PRINT_NODE(Child, Level+1);
     }
 }
@@ -50,9 +48,9 @@ UTEST(AK_FBX, Box) {
     ak_fbx_scene* Scene = AK_FBX_Load("test_files/Box.fbx", &Stats);
     ASSERT_TRUE(Scene != 0);
 
-    bool FoundCamera = false;
-    bool FoundLight = false;
-    bool FoundCube = false;
+    int FoundCamera = 0;
+    int FoundLight = 0;
+    int FoundCube = 0;
 
     ak_fbx_u32 NodeIndex = 0;
     ak_fbx_node* NodeStack[1024];
@@ -61,11 +59,11 @@ UTEST(AK_FBX, Box) {
     while(NodeIndex) {
         ak_fbx_node* Node = NodeStack[--NodeIndex];
         if(strncmp(Node->Name.Str, "Camera", Node->Name.Size) == 0) {
-            FoundCamera = true;
+            FoundCamera = 1;
         }
 
         if(strncmp(Node->Name.Str, "Cube", Node->Name.Size) == 0) {
-            FoundCube = true;
+            FoundCube = 1;
             ASSERT_EQ(Node->Type, AK_FBX_NODE_TYPE_GEOMETRY);
 
             ak_fbx_geometry* CubeGeometry = AK_FBX_Node_Get_Geometry(Node);
@@ -73,10 +71,11 @@ UTEST(AK_FBX, Box) {
         }
 
         if(strncmp(Node->Name.Str, "Light", Node->Name.Size) == 0) {
-            FoundLight = true;    
+            FoundLight = 1;    
         }
 
-        for(ak_fbx_node* Child = Node->FirstChild; Child; Child = Child->NextSibling) {
+        ak_fbx_node* Child;
+        for(Child = Node->FirstChild; Child; Child = Child->NextSibling) {
             NodeStack[NodeIndex++] = Child;
         }
     }
@@ -86,7 +85,7 @@ UTEST(AK_FBX, Box) {
     ASSERT_TRUE(FoundLight);
 
     AK_FBX_Free(Scene);
-    ASSERT_EQ(Stats.MemoryAllocated, 0);
+    ASSERT_TRUE(Stats.MemoryAllocated == 0);
 }
 
 UTEST(AK_FBX, Geometry) {
@@ -97,7 +96,18 @@ UTEST(AK_FBX, Geometry) {
     ASSERT_TRUE(Scene != 0);
 
     AK_FBX_Free(Scene);
-    ASSERT_EQ(Stats.MemoryAllocated, 0);
+    ASSERT_TRUE(Stats.MemoryAllocated == 0);
+}
+
+UTEST(AK_FBX, MaterialBox) {
+    allocator_stats Stats;
+    Stats.MemoryAllocated = 0;
+
+    ak_fbx_scene* Scene = AK_FBX_Load("test_files/MaterialBox.fbx", &Stats);
+    ASSERT_TRUE(Scene != 0);
+
+    AK_FBX_Free(Scene);
+    ASSERT_TRUE(Stats.MemoryAllocated == 0);
 }
 
 UTEST_MAIN()

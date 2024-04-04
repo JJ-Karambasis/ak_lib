@@ -21,13 +21,13 @@ if "%intel%"=="1" (
 )
 
 set cl_warnings= /WX /Wall /wd4100 /wd4242 /wd4244 /wd5045
-set cl_common=   /nologo /FC /Z7 /I%BasePath%\ %cl_warnings% /Tc
+set cl_common=   /nologo /D_CRT_SECURE_NO_WARNINGS /FC /Z7 /I%BasePath%\ %cl_warnings% /Tc
 
 set clang_warnings= -Werror -Wall 
-set clang_common=   -g -gcodeview -fdiagnostics-absolute-paths -I%BasePath%\ %clang_warnings% -std=c89
+set clang_common=   -g -gcodeview -fdiagnostics-absolute-paths -D_CRT_SECURE_NO_WARNINGS -I%BasePath%\ %clang_warnings% -std=c89
 
 set intel_warnings= -Werror -Wall
-set intel_common=   -g -gcodeview -fdiagnostics-absolute-paths -I%BasePath%\ %intel_warnings% -Qstd=c89
+set intel_common=   -g -gcodeview -fdiagnostics-absolute-paths -D_CRT_SECURE_NO_WARNINGS -I%BasePath%\ %intel_warnings% -Qstd=c89
 
 if "%clang%"=="1" (
     if "%env32%"=="1" set clang_common=%clang_common% -m32
@@ -70,9 +70,12 @@ if "%intel%"=="1" set compile_out=     %intel_out%
 if "%debug%"=="1"   set compile=%compile_debug%
 if "%release%"=="1" set compile=%compile_release%
 
-echo %compile%
-
-if not exist %BasePath%\ests\ak_atomic_test_bin\ ( mkdir %BasePath%\tests\ak_atomic_test_bin\ )
+if not exist %BasePath%\tests\ak_atomic_test_bin\ ( mkdir %BasePath%\tests\ak_atomic_test_bin\ )
 pushd %BasePath%\tests\ak_atomic_test_bin\
     %compile% %BasePath%\tests\ak_atomic_test.c %compile_link% %compile_out%ak_atomic_test.exe
+popd
+
+if not exist %BasePath%\tests\ak_fbx_test_bin\ ( mkdir %BasePath%\tests\ak_fbx_test_bin\ )
+pushd %BasePath%\tests\ak_fbx_test_bin\
+    %compile% %BasePath%\tests\ak_fbx_test.c %compile_link% %compile_out%ak_fbx_test.exe
 popd
