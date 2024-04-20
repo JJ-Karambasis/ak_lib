@@ -96,6 +96,9 @@
         "xstring": "cpp",
         "xtr1common": "cpp",
         "xtree": "cpp",
-        "stdbool.h": "c"
+        "stdbool.h": "c",
+        "stdio.h": "c",
+        "assert.h": "c",
+        "utest.h": "c"
     }
 }

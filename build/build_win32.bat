@@ -74,8 +74,3 @@ if not exist %BasePath%\tests\ak_atomic_test_bin\ ( mkdir %BasePath%\tests\ak_at
 pushd %BasePath%\tests\ak_atomic_test_bin\
     %compile% %BasePath%\tests\ak_atomic_test.c %compile_link% %compile_out%ak_atomic_test.exe
 popd
-
-if not exist %BasePath%\tests\ak_fbx_test_bin\ ( mkdir %BasePath%\tests\ak_fbx_test_bin\ )
-pushd %BasePath%\tests\ak_fbx_test_bin\
-    %compile% %BasePath%\tests\ak_fbx_test.c %compile_link% %compile_out%ak_fbx_test.exe
-popd
