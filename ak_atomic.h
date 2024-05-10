@@ -517,7 +517,7 @@ typedef AK_JOB_THREAD_END_DEFINE(ak_job_thread_end_func);
 typedef enum ak_job_bit_flag {
     AK_JOB_FLAG_NONE,
     AK_JOB_FLAG_QUEUE_IMMEDIATELY_BIT = (1 << 0),
-    AK_JOB_FLAG_FREE_WHEN_DONE = (1 << 1)
+    AK_JOB_FLAG_FREE_WHEN_DONE_BIT = (1 << 1)
 } ak_job_bit_flag;
 typedef uint32_t ak_job_flags;
 
@@ -3372,7 +3372,7 @@ AKATOMICDEF ak_job_id AK_Job_System_Alloc_Job(ak_job_system* JobSystem, ak_job_s
     AK_Job__Allocate_Data(Job, JobData.Data, JobData.DataByteSize, JobSystem->MallocUserData);
     Job->ParentJob = AK_Job__Storage_Get(&JobSystem->JobStorage, ParentID);
 
-    if(Flags & AK_JOB_FLAG_FREE_WHEN_DONE) {
+    if(Flags & AK_JOB_FLAG_FREE_WHEN_DONE_BIT) {
         Job->JobInfoFlags |= AK__JOB_INFO_FLAG_FREE_WHEN_DONE_BIT;
     } else {
         Job->JobInfoFlags &= ~AK__JOB_INFO_FLAG_FREE_WHEN_DONE_BIT;

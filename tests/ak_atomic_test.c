@@ -1064,7 +1064,7 @@ UTEST(AK_Job_System, UserData) {
     ak_job_system_allocator_info AllocatorInfo = {0};
     ak_job_system* JobSystem = AK_Job_System_Create((Iterations*2)+1, AK_Get_Processor_Thread_Count(), 0, NULL, &AllocatorInfo);
 
-    ak_job_id RootJob = AK_Job_System_Alloc_Empty_Job(JobSystem, AK_JOB_FLAG_FREE_WHEN_DONE);
+    ak_job_id RootJob = AK_Job_System_Alloc_Empty_Job(JobSystem, AK_JOB_FLAG_FREE_WHEN_DONE_BIT);
     uint32_t i;
     for(i = 0; i < Iterations; i++) {
         /*Make sure the job properly copies the data from the stack*/
@@ -1089,14 +1089,14 @@ UTEST(AK_Job_System, UserData) {
         SmallJobData.Data = &SmallData;
         SmallJobData.DataByteSize = sizeof(SmallData);
         ak_job_id JobID = AK_Job_System_Alloc_Job(JobSystem, SmallJobData, 
-                                                  RootJob, AK_JOB_FLAG_QUEUE_IMMEDIATELY_BIT|AK_JOB_FLAG_FREE_WHEN_DONE);
+                                                  RootJob, AK_JOB_FLAG_QUEUE_IMMEDIATELY_BIT|AK_JOB_FLAG_FREE_WHEN_DONE_BIT);
         
         ak_job_system_data LargeJobData;
         LargeJobData.JobCallback = AK_Job_System_Large_User_Data_Test_Callback;
         LargeJobData.Data = &LargeData;
         LargeJobData.DataByteSize = sizeof(LargeData);
         JobID = AK_Job_System_Alloc_Job(JobSystem, LargeJobData, 
-                                        RootJob, AK_JOB_FLAG_QUEUE_IMMEDIATELY_BIT|AK_JOB_FLAG_FREE_WHEN_DONE);
+                                        RootJob, AK_JOB_FLAG_QUEUE_IMMEDIATELY_BIT|AK_JOB_FLAG_FREE_WHEN_DONE_BIT);
         ASSERT_TRUE(JobID != 0);
     }
 
@@ -1138,7 +1138,7 @@ UTEST(AK_Job_System, MainTest) {
 
     uint64_t StartTime = AK_Query_Performance_Counter();
 
-    ak_job_id RootJob = AK_Job_System_Alloc_Empty_Job(JobSystem, AK_JOB_FLAG_FREE_WHEN_DONE);
+    ak_job_id RootJob = AK_Job_System_Alloc_Empty_Job(JobSystem, AK_JOB_FLAG_FREE_WHEN_DONE_BIT);
     uint32_t i;
     for(i = 0; i < MaxJobCount; i++) {
         ak_job_system_job_data JobData;
@@ -1151,7 +1151,7 @@ UTEST(AK_Job_System, MainTest) {
         JobCallbackData.DataByteSize = sizeof(ak_job_system_job_data);
 
         ak_job_id JobID = AK_Job_System_Alloc_Job(JobSystem, JobCallbackData, 
-                                                  RootJob, AK_JOB_FLAG_QUEUE_IMMEDIATELY_BIT|AK_JOB_FLAG_FREE_WHEN_DONE);
+                                                  RootJob, AK_JOB_FLAG_QUEUE_IMMEDIATELY_BIT|AK_JOB_FLAG_FREE_WHEN_DONE_BIT);
         ASSERT_TRUE(JobID != 0);
     }
 
@@ -1283,12 +1283,12 @@ UTEST(AK_Job_System, DependencyTest) {
         JobDataF.Data = &Wrapper;
         JobDataF.DataByteSize = sizeof(Wrapper);
 
-        ak_job_id JobA = AK_Job_System_Alloc_Job(JobSystem, JobDataA, RootJob, AK_JOB_FLAG_FREE_WHEN_DONE);
-        ak_job_id JobB = AK_Job_System_Alloc_Job(JobSystem, JobDataB, RootJob, AK_JOB_FLAG_FREE_WHEN_DONE);
-        ak_job_id JobC = AK_Job_System_Alloc_Job(JobSystem, JobDataC, RootJob, AK_JOB_FLAG_FREE_WHEN_DONE);
-        ak_job_id JobD = AK_Job_System_Alloc_Job(JobSystem, JobDataD, RootJob, AK_JOB_FLAG_FREE_WHEN_DONE);
-        ak_job_id JobE = AK_Job_System_Alloc_Job(JobSystem, JobDataE, RootJob, AK_JOB_FLAG_FREE_WHEN_DONE);
-        ak_job_id JobF = AK_Job_System_Alloc_Job(JobSystem, JobDataF, RootJob, AK_JOB_FLAG_FREE_WHEN_DONE);
+        ak_job_id JobA = AK_Job_System_Alloc_Job(JobSystem, JobDataA, RootJob, AK_JOB_FLAG_FREE_WHEN_DONE_BIT);
+        ak_job_id JobB = AK_Job_System_Alloc_Job(JobSystem, JobDataB, RootJob, AK_JOB_FLAG_FREE_WHEN_DONE_BIT);
+        ak_job_id JobC = AK_Job_System_Alloc_Job(JobSystem, JobDataC, RootJob, AK_JOB_FLAG_FREE_WHEN_DONE_BIT);
+        ak_job_id JobD = AK_Job_System_Alloc_Job(JobSystem, JobDataD, RootJob, AK_JOB_FLAG_FREE_WHEN_DONE_BIT);
+        ak_job_id JobE = AK_Job_System_Alloc_Job(JobSystem, JobDataE, RootJob, AK_JOB_FLAG_FREE_WHEN_DONE_BIT);
+        ak_job_id JobF = AK_Job_System_Alloc_Job(JobSystem, JobDataF, RootJob, AK_JOB_FLAG_FREE_WHEN_DONE_BIT);
         
         AK_Job_System_Add_Dependency(JobSystem, JobA, JobC);
         AK_Job_System_Add_Dependency(JobSystem, JobB, JobC);
@@ -1332,7 +1332,7 @@ UTEST(AK_Job_System, SleepTest) {
 
     ak_job_system_data JobData = {0};
     JobData.JobCallback = AK_Job_System_Sleep_Test_Callback;
-    ak_job_id SleepID = AK_Job_System_Alloc_Job(JobSystem, JobData, 0, AK_JOB_FLAG_QUEUE_IMMEDIATELY_BIT|AK_JOB_FLAG_FREE_WHEN_DONE);
+    ak_job_id SleepID = AK_Job_System_Alloc_Job(JobSystem, JobData, 0, AK_JOB_FLAG_QUEUE_IMMEDIATELY_BIT|AK_JOB_FLAG_FREE_WHEN_DONE_BIT);
     ASSERT_TRUE(SleepID != 0);
 
     AK_Job_System_Wait_For_Job(JobSystem, SleepID);
@@ -1377,7 +1377,7 @@ UTEST(AK_Job_System, ThreadCallbacks) {
     ak_job_system* JobSystem = AK_Job_System_Create(1, ThreadCount, 0, &ThreadCallbacks, &AllocatorInfo);
     
     ak_job_system_data JobData = {0};
-    ak_job_id JobID = AK_Job_System_Alloc_Job(JobSystem, JobData, 0, AK_JOB_FLAG_QUEUE_IMMEDIATELY_BIT|AK_JOB_FLAG_FREE_WHEN_DONE);
+    ak_job_id JobID = AK_Job_System_Alloc_Job(JobSystem, JobData, 0, AK_JOB_FLAG_QUEUE_IMMEDIATELY_BIT|AK_JOB_FLAG_FREE_WHEN_DONE_BIT);
     AK_Job_System_Wait_For_Job(JobSystem, JobID);
     AK_Job_System_Delete(JobSystem);
 
@@ -1385,326 +1385,6 @@ UTEST(AK_Job_System, ThreadCallbacks) {
     ASSERT_EQ(ThreadCallbackData.ThreadsEnded.Nonatomic, ThreadCount);
     ASSERT_GE(ThreadCallbackData.ThreadsUpdated.Nonatomic, 1);
 
-    ASSERT_TRUE(AllocatorInfo.AllocatedAmount.Nonatomic == AllocatorInfo.FreedAmount.Nonatomic);
-}
-
-AK_JOB_QUEUE_CALLBACK_DEFINE(AK_Job_Queue_Test_Callback) {
-    ak_job_system_job_data* JobData = (ak_job_system_job_data*)JobUserData;
-    assert(JobData->Index < JobData->ThreadData->Count); /*overflow occurred*/
-    JobData->ThreadData->CounterTable[JobData->Index]++;
-    return AK_JOB_STATUS_COMPLETE;
-}
-
-UTEST(AK_Job_Queue, MainTest) {
-    const uint32_t ThreadCount = AK_Get_Processor_Thread_Count();
-    const uint32_t MaxJobCount = (1000000);
-
-    ak_job_system_allocator_info AllocatorInfo = {0};
-
-    ak_job_system_thread_data ThreadData = {0};
-    ThreadData.Count = MaxJobCount;
-    ThreadData.CounterTable = (uint32_t*)malloc(sizeof(uint32_t)*MaxJobCount);
-    memset(ThreadData.CounterTable, 0, sizeof(uint32_t)*MaxJobCount);
-
-    ak_job_queue* JobQueue = AK_Job_Queue_Create(MaxJobCount+1, ThreadCount, 0, NULL, &AllocatorInfo);
-    ASSERT_TRUE(JobQueue);
-
-    uint64_t StartTime = AK_Query_Performance_Counter();
-
-    ak_job_id RootJob = AK_Job_Queue_Alloc_Empty_Job(JobQueue, AK_JOB_FLAG_FREE_WHEN_DONE);
-    uint32_t i;
-    for(i = 0; i < MaxJobCount; i++) {
-        ak_job_system_job_data JobData;
-        JobData.ThreadData = &ThreadData;
-        JobData.Index = i;
-
-        ak_job_queue_data JobCallbackData;
-        JobCallbackData.JobCallback = AK_Job_Queue_Test_Callback;
-        JobCallbackData.Data = &JobData;
-        JobCallbackData.DataByteSize = sizeof(ak_job_system_job_data);
-
-        ak_job_id JobID = AK_Job_Queue_Alloc_Job(JobQueue, JobCallbackData, 
-                                                  RootJob, AK_JOB_FLAG_QUEUE_IMMEDIATELY_BIT|AK_JOB_FLAG_FREE_WHEN_DONE);
-        ASSERT_TRUE(JobID != 0);
-    }
-
-    AK_Job_Queue_Add_Job(JobQueue, RootJob);
-    AK_Job_Queue_Wait_For_Job(JobQueue, RootJob);
-    printf("Time: %fms\n", ((double)(AK_Query_Performance_Counter()-StartTime)/(double)AK_Query_Performance_Frequency())*1000.0);
-    AK_Job_Queue_Delete(JobQueue);
-
-    for(i = 0; i < MaxJobCount; i++) {
-        /*Each index should've only been operated on once*/
-        ASSERT_EQ(ThreadData.CounterTable[i], 1);
-    }
-
-    free(ThreadData.CounterTable);
-    ASSERT_TRUE(AllocatorInfo.AllocatedAmount.Nonatomic == AllocatorInfo.FreedAmount.Nonatomic);
-}
-
-typedef struct {
-    ak_atomic_u32         WorkCount;
-    uint32_t              TargetCount;
-} ak_job_waiting_thread_data;
-
-typedef struct {
-    ak_job_waiting_thread_data* ThreadData;
-} ak_job_waiting_data;
-
-typedef struct {
-    ak_atomic_u32 Counter;
-    uint32_t      TargetCount;
-} ak_job_waiting_lock;
-
-typedef struct {
-    ak_job_waiting_lock* JobLock;
-    ak_job_waiting_thread_data* ThreadData;
-} ak_job_waiting_batch_data;
-
-static AK_JOB_QUEUE_CALLBACK_DEFINE(AK_Job_Waiting_Test_Wait_Job) {
-    ak_job_waiting_data* JobWaitingData = (ak_job_waiting_data*)JobUserData;
-    ak_job_waiting_thread_data* ThreadData = JobWaitingData->ThreadData;
-    if(AK_Atomic_Load_U32_Relaxed(&ThreadData->WorkCount) < ThreadData->TargetCount) {
-        return AK_JOB_STATUS_REQUEUE;
-    }
-    assert(ThreadData->WorkCount.Nonatomic == ThreadData->TargetCount);
-    return AK_JOB_STATUS_COMPLETE;
-}
-
-static AK_JOB_QUEUE_CALLBACK_DEFINE(AK_Job_Waiting_Test_Work_Job) {
-    ak_job_waiting_data* JobWaitingData = (ak_job_waiting_data*)JobUserData;
-    ak_job_waiting_thread_data* ThreadData = JobWaitingData->ThreadData;
-    if(AK_Atomic_Increment_U32_Relaxed(&ThreadData->WorkCount) < ThreadData->TargetCount) {
-        return AK_JOB_STATUS_REQUEUE;
-    }
-    
-    return AK_JOB_STATUS_COMPLETE;
-}
-
-static AK_JOB_QUEUE_CALLBACK_DEFINE(AK_Job_Waiting_Test_Start_Job) {
-    ak_job_waiting_batch_data* JobBatchData = (ak_job_waiting_batch_data*)JobUserData;
-    ak_job_waiting_lock* JobLock = JobBatchData->JobLock;
-    ak_job_waiting_thread_data* ThreadData = JobBatchData->ThreadData;
-
-    AK_Atomic_Increment_U32_Relaxed(&JobLock->Counter);
-    AK_Atomic_Thread_Fence_Seq_Cst();
-
-    /*Make sure all the start jobs happen roughly at the same time by spinlocking*/
-    while(AK_Atomic_Load_U32_Relaxed(&JobLock->Counter) < JobLock->TargetCount);
-
-    ak_job_waiting_data JobWaitingData = {0};
-    JobWaitingData.ThreadData = ThreadData;
-
-    ak_job_id RootJob = AK_Job_Queue_Alloc_Empty_Job(JobQueue, AK_JOB_FLAG_FREE_WHEN_DONE);
-    assert(RootJob);
-
-    ak_job_queue_data JobData;
-    JobData.JobCallback = AK_Job_Waiting_Test_Wait_Job;
-    JobData.Data = &JobWaitingData;
-    JobData.DataByteSize = sizeof(ak_job_waiting_data);
-    ak_job_id TestJobID = AK_Job_Queue_Alloc_Job(JobQueue, JobData, RootJob, AK_JOB_FLAG_QUEUE_IMMEDIATELY_BIT|AK_JOB_FLAG_FREE_WHEN_DONE);
-    assert(TestJobID);
-
-    JobData.JobCallback = AK_Job_Waiting_Test_Work_Job;
-    TestJobID = AK_Job_Queue_Alloc_Job(JobQueue, JobData, RootJob, AK_JOB_FLAG_QUEUE_IMMEDIATELY_BIT|AK_JOB_FLAG_FREE_WHEN_DONE);    
-    assert(TestJobID);
-
-    AK_Job_Queue_Add_Job(JobQueue, RootJob);
-    AK_Job_Queue_Wait_For_Job(JobQueue, RootJob);
-    return AK_JOB_STATUS_COMPLETE;
-}
-
-UTEST(AK_Job_Queue, RequeueTest) {
-    const uint32_t Iterations = 1;
-    const uint32_t TargetCount = 20;
-
-    ak_job_system_allocator_info AllocatorInfo = {0};
-    uint32_t ThreadCount = AK_Get_Processor_Thread_Count();
-    ak_job_queue* JobQueue = AK_Job_Queue_Create((4*ThreadCount)+1, ThreadCount, 0, NULL, &AllocatorInfo);
-
-    ak_job_waiting_lock Lock = {0};
-    Lock.TargetCount = ThreadCount;
-
-    ak_job_waiting_thread_data* ThreadsData = (ak_job_waiting_thread_data*)malloc(sizeof(ak_job_waiting_thread_data)*ThreadCount*Iterations);
-    memset(ThreadsData, 0, sizeof(ak_job_waiting_thread_data)*ThreadCount*Iterations);
-
-    ak_job_id RootJob = AK_Job_Queue_Alloc_Empty_Job(JobQueue, AK_JOB_FLAG_FREE_WHEN_DONE);
-    ASSERT_TRUE(RootJob);
-
-    uint32_t i;
-    uint32_t j;
-    for(i = 0; i < Iterations; i++) {
-        for(j = 0; j < ThreadCount; j++) {
-            ak_job_waiting_thread_data* ThreadData = ThreadsData + i*ThreadCount + j;
-            ThreadData->TargetCount = TargetCount;
-
-            ak_job_waiting_batch_data BatchData = {0};
-            BatchData.JobLock = &Lock;
-            BatchData.ThreadData = ThreadData;
-
-            ak_job_queue_data JobData = {0};
-            JobData.JobCallback = AK_Job_Waiting_Test_Start_Job;
-            JobData.Data = &BatchData;
-            JobData.DataByteSize = sizeof(BatchData);
-
-            ak_job_id JobID = AK_Job_Queue_Alloc_Job(JobQueue, JobData, RootJob, AK_JOB_FLAG_QUEUE_IMMEDIATELY_BIT|AK_JOB_FLAG_FREE_WHEN_DONE);
-            ASSERT_TRUE(JobID);
-        }
-    }
-
-    AK_Job_Queue_Add_Job(JobQueue, RootJob);
-    AK_Job_Queue_Wait_For_Job(JobQueue, RootJob);
-    
-    for(i = 0; i < ThreadCount*Iterations; i++) {
-        ASSERT_TRUE(ThreadsData[i].WorkCount.Nonatomic == ThreadsData[i].TargetCount);
-    }
-    
-    AK_Job_Queue_Delete(JobQueue);
-
-    free(ThreadsData);
-
-    ASSERT_TRUE(AllocatorInfo.AllocatedAmount.Nonatomic == AllocatorInfo.FreedAmount.Nonatomic);
-}
-
-AK_JOB_QUEUE_CALLBACK_DEFINE(AK_Async_Job_Queue_Dependency_A) {
-    ak_job_system_dependency_test_data* DependencyData = ((ak_job_system_dependency_data_wrapper*)JobUserData)->DependencyData;
-    assert(!DependencyData->A);
-    assert(!DependencyData->C);
-    assert(!DependencyData->F);
-    AK_Atomic_Thread_Fence_Rel();
-    DependencyData->A = true;
-    return AK_JOB_STATUS_COMPLETE;
-}
-
-AK_JOB_QUEUE_CALLBACK_DEFINE(AK_Async_Job_Queue_Dependency_B) {
-    ak_job_system_dependency_test_data* DependencyData = ((ak_job_system_dependency_data_wrapper*)JobUserData)->DependencyData;
-    assert(!DependencyData->B);
-    assert(!DependencyData->C);
-    assert(!DependencyData->F);
-    AK_Atomic_Thread_Fence_Rel();
-    DependencyData->B = true;
-    return AK_JOB_STATUS_COMPLETE;
-}
-
-AK_JOB_QUEUE_CALLBACK_DEFINE(AK_Async_Job_Queue_Dependency_C) {
-    ak_job_system_dependency_test_data* DependencyData = ((ak_job_system_dependency_data_wrapper*)JobUserData)->DependencyData;
-    assert(!DependencyData->C);
-    assert(!DependencyData->F);
-    AK_Atomic_Thread_Fence_Rel();
-    DependencyData->C = true;
-    return AK_JOB_STATUS_COMPLETE;
-}
-
-AK_JOB_QUEUE_CALLBACK_DEFINE(AK_Async_Job_Queue_Dependency_D) {
-    ak_job_system_dependency_test_data* DependencyData = ((ak_job_system_dependency_data_wrapper*)JobUserData)->DependencyData;
-    assert(!DependencyData->D);
-    assert(!DependencyData->E);
-    assert(!DependencyData->F);
-    AK_Atomic_Thread_Fence_Rel();
-    DependencyData->D = true;
-    return AK_JOB_STATUS_COMPLETE;
-}
-
-AK_JOB_QUEUE_CALLBACK_DEFINE(AK_Async_Job_Queue_Dependency_E) {
-    ak_job_system_dependency_test_data* DependencyData = ((ak_job_system_dependency_data_wrapper*)JobUserData)->DependencyData;
-    assert(!DependencyData->E);
-    assert(!DependencyData->F);
-    AK_Atomic_Thread_Fence_Rel();
-    DependencyData->E = true;
-    return AK_JOB_STATUS_COMPLETE;
-}
-
-AK_JOB_QUEUE_CALLBACK_DEFINE(AK_Async_Job_Queue_Dependency_F) {
-    ak_job_system_dependency_test_data* DependencyData = ((ak_job_system_dependency_data_wrapper*)JobUserData)->DependencyData;
-    assert(DependencyData->A);
-    assert(DependencyData->B);
-    assert(DependencyData->D);
-    assert(DependencyData->E);
-    assert(!DependencyData->F);
-    AK_Atomic_Thread_Fence_Rel();
-    DependencyData->F = true;
-    return AK_JOB_STATUS_COMPLETE;
-}
-
-UTEST(AK_Job_Queue, DependencyTest) {
-    const uint32_t Iterations = 100000;
-
-    ak_job_system_allocator_info AllocatorInfo = {0};
-
-    ak_job_queue* JobQueue = AK_Job_Queue_Create((6*Iterations)+1, AK_Get_Processor_Thread_Count(), (5*Iterations), NULL, &AllocatorInfo);
-
-    ak_job_system_dependency_test_data* DependencyDataArray = (ak_job_system_dependency_test_data*)malloc(Iterations*sizeof(ak_job_system_dependency_test_data));
-    memset(DependencyDataArray, 0, Iterations*sizeof(ak_job_system_dependency_test_data));
-
-    ak_job_id RootJob = AK_Job_Queue_Alloc_Empty_Job(JobQueue, 0);
-
-    uint32_t i;
-    for(i = 0; i < Iterations; i++) {
-        ak_job_system_dependency_data_wrapper Wrapper;
-        Wrapper.DependencyData = &DependencyDataArray[i];
-
-        ak_job_queue_data JobDataA;
-        JobDataA.JobCallback = AK_Async_Job_Queue_Dependency_A;
-        JobDataA.Data = &Wrapper;
-        JobDataA.DataByteSize = sizeof(Wrapper);
-
-        ak_job_queue_data JobDataB;
-        JobDataB.JobCallback = AK_Async_Job_Queue_Dependency_B;
-        JobDataB.Data = &Wrapper;
-        JobDataB.DataByteSize = sizeof(Wrapper);
-
-        ak_job_queue_data JobDataC;
-        JobDataC.JobCallback = AK_Async_Job_Queue_Dependency_C;
-        JobDataC.Data = &Wrapper;
-        JobDataC.DataByteSize = sizeof(Wrapper);
-
-        ak_job_queue_data JobDataD;
-        JobDataD.JobCallback = AK_Async_Job_Queue_Dependency_D;
-        JobDataD.Data = &Wrapper;
-        JobDataD.DataByteSize = sizeof(Wrapper);
-
-        ak_job_queue_data JobDataE;
-        JobDataE.JobCallback = AK_Async_Job_Queue_Dependency_E;
-        JobDataE.Data = &Wrapper;
-        JobDataE.DataByteSize = sizeof(Wrapper);
-
-        ak_job_queue_data JobDataF;
-        JobDataF.JobCallback = AK_Async_Job_Queue_Dependency_F;
-        JobDataF.Data = &Wrapper;
-        JobDataF.DataByteSize = sizeof(Wrapper);
-
-        ak_job_id JobA = AK_Job_Queue_Alloc_Job(JobQueue, JobDataA, RootJob, AK_JOB_FLAG_FREE_WHEN_DONE);
-        ak_job_id JobB = AK_Job_Queue_Alloc_Job(JobQueue, JobDataB, RootJob, AK_JOB_FLAG_FREE_WHEN_DONE);
-        ak_job_id JobC = AK_Job_Queue_Alloc_Job(JobQueue, JobDataC, RootJob, AK_JOB_FLAG_FREE_WHEN_DONE);
-        ak_job_id JobD = AK_Job_Queue_Alloc_Job(JobQueue, JobDataD, RootJob, AK_JOB_FLAG_FREE_WHEN_DONE);
-        ak_job_id JobE = AK_Job_Queue_Alloc_Job(JobQueue, JobDataE, RootJob, AK_JOB_FLAG_FREE_WHEN_DONE);
-        ak_job_id JobF = AK_Job_Queue_Alloc_Job(JobQueue, JobDataF, RootJob, AK_JOB_FLAG_FREE_WHEN_DONE);
-        
-        AK_Job_Queue_Add_Dependency(JobQueue, JobA, JobC);
-        AK_Job_Queue_Add_Dependency(JobQueue, JobB, JobC);
-        AK_Job_Queue_Add_Dependency(JobQueue, JobD, JobE);
-        AK_Job_Queue_Add_Dependency(JobQueue, JobC, JobF);
-        AK_Job_Queue_Add_Dependency(JobQueue, JobE, JobF);
-        AK_Job_Queue_Add_Job(JobQueue, JobA);
-        AK_Job_Queue_Add_Job(JobQueue, JobB);
-        AK_Job_Queue_Add_Job(JobQueue, JobD);
-    }
-    AK_Job_Queue_Add_Job(JobQueue, RootJob);
-    AK_Job_Queue_Wait_For_Job(JobQueue, RootJob);
-    AK_Job_Queue_Free_Job(JobQueue, RootJob);
-
-    for(i = 0; i < Iterations; i++) {
-        ak_job_system_dependency_test_data* DependencyData = DependencyDataArray+i;
-        ASSERT_TRUE(DependencyData->A);
-        ASSERT_TRUE(DependencyData->B);
-        ASSERT_TRUE(DependencyData->C);
-        ASSERT_TRUE(DependencyData->D);
-        ASSERT_TRUE(DependencyData->E);
-        ASSERT_TRUE(DependencyData->F);
-    }
-
-    free(DependencyDataArray);
-    AK_Job_Queue_Delete(JobQueue);
     ASSERT_TRUE(AllocatorInfo.AllocatedAmount.Nonatomic == AllocatorInfo.FreedAmount.Nonatomic);
 }
 
