@@ -1,0 +1,1 @@
+#include "ak_atomic_compile_test.c"
