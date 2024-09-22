@@ -17,6 +17,10 @@
 	#error "Unrecognized Platform!"
 #endif
 
+#if defined(__clang__)
+	#define AK_ATOMIC_COMPILER_CLANG
+#endif
+
 #ifndef AK_ATOMIC_EXCLUDE_STDINT
 /*In Ansi MSVC, stdint.h includes comments that have single line comments which breaks ansi c standard.
   Need to disable this warning for MSVC only
@@ -150,6 +154,8 @@ AKATOMICDEF void*  AK_Atomic_Compare_Exchange_Ptr_Relaxed(ak_atomic_ptr* Object,
 AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Ptr_Weak_Relaxed(ak_atomic_ptr* Object, void** OldValue, void* NewValue);
 
 /*Compare exchange for boolean results*/
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Bool_U8_Relaxed(ak_atomic_u8* Object, uint8_t OldValue, uint8_t NewValue);
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Bool_U16_Relaxed(ak_atomic_u16* Object, uint16_t OldValue, uint16_t NewValue);
 AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Bool_U32_Relaxed(ak_atomic_u32* Object, uint32_t OldValue, uint32_t NewValue);
 AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Bool_U64_Relaxed(ak_atomic_u64* Object, uint64_t OldValue, uint64_t NewValue);
 AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Bool_Ptr_Relaxed(ak_atomic_ptr* Object, void* OldValue, void* NewValue);
@@ -200,7 +206,7 @@ AKATOMICDEF uint32_t AK_Atomic_Increment_U32(ak_atomic_u32* Object, ak_atomic_me
 AKATOMICDEF uint32_t AK_Atomic_Decrement_U32(ak_atomic_u32* Object, ak_atomic_memory_order MemoryOrder);
 
 AKATOMICDEF uint64_t  AK_Atomic_Load_U64(const ak_atomic_u64* Object, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF int8_t    AK_Atomic_Store_U64(ak_atomic_u64* Object, uint64_t Value, ak_atomic_memory_order MemoryOrder);
+AKATOMICDEF void      AK_Atomic_Store_U64(ak_atomic_u64* Object, uint64_t Value, ak_atomic_memory_order MemoryOrder);
 AKATOMICDEF uint64_t  AK_Atomic_Exchange_U64(ak_atomic_u64* Object, uint64_t NewValue, ak_atomic_memory_order MemoryOrder);
 AKATOMICDEF uint64_t  AK_Atomic_Compare_Exchange_U64(ak_atomic_u64* Object, uint64_t OldValue, uint64_t NewValue, ak_atomic_memory_order MemoryOrder);
 AKATOMICDEF int8_t    AK_Atomic_Compare_Exchange_U64_Weak(ak_atomic_u64* Object, uint64_t* OldValue, uint64_t NewValue, ak_atomic_memory_order MemoryOrder);
@@ -365,7 +371,12 @@ AKATOMICDEF uint64_t AK_Query_Performance_Frequency(void);
 /*Compiler warnings*/
 #ifdef AK_ATOMIC_COMPILER_MSVC
 #pragma warning(push)
-#pragma warning(disable : 4061 4711)
+#pragma warning(disable : 4061 4062 4711)
+#endif
+
+#ifdef AK_ATOMIC_COMPILER_CLANG
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wswitch"
 #endif
 
 /*Custom allocators*/
@@ -392,104 +403,1831 @@ AKATOMICDEF uint64_t AK_Query_Performance_Frequency(void);
 
 #define AK_ATOMIC__UNREFERENCED_PARAMETER(param) (void)(param)
 
+/*Ptr type (is either 32 bit or 64 bit wrappers)*/
+#if AK_ATOMIC_PTR_SIZE == 8
+AKATOMICDEF void*  AK_Atomic_Load_Ptr_Relaxed(const ak_atomic_ptr* Object) {
+	return (void*)AK_Atomic_Load_U64_Relaxed((const ak_atomic_u64 *)Object);
+}
+
+AKATOMICDEF void AK_Atomic_Store_Ptr_Relaxed(ak_atomic_ptr* Object, void* Value) {
+	AK_Atomic_Store_U64_Relaxed((ak_atomic_u64*)Object, (uint64_t)Value);
+}
+
+AKATOMICDEF void* AK_Atomic_Exchange_Ptr_Relaxed(ak_atomic_ptr* Object, void* NewValue) {
+	return (void*)AK_Atomic_Exchange_U64_Relaxed((ak_atomic_u64 *)Object, (uint64_t)NewValue);
+}
+
+AKATOMICDEF void* AK_Atomic_Compare_Exchange_Ptr_Relaxed(ak_atomic_ptr* Object, void* OldValue, void* NewValue) {
+	return (void*)AK_Atomic_Compare_Exchange_U64_Relaxed((ak_atomic_u64 *)Object, (uint64_t)OldValue, (uint64_t)NewValue);
+}
+
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Ptr_Weak_Relaxed(ak_atomic_ptr* Object, void** OldValue, void* NewValue) {
+	return AK_Atomic_Compare_Exchange_U64_Weak_Relaxed((ak_atomic_u64 *)Object, (uint64_t *)OldValue, (uint64_t)NewValue);
+}
+
+#else
+AKATOMICDEF void*  AK_Atomic_Load_Ptr_Relaxed(const ak_atomic_ptr* Object) {
+	return (void*)AK_Atomic_Load_U32_Relaxed((const ak_atomic_u32 *)Object);
+}
+
+AKATOMICDEF void AK_Atomic_Store_Ptr_Relaxed(ak_atomic_ptr* Object, void* Value) {
+	AK_Atomic_Store_U32_Relaxed((ak_atomic_u32*)Object, (uint32_t)Value);
+}
+
+AKATOMICDEF void* AK_Atomic_Exchange_Ptr_Relaxed(ak_atomic_ptr* Object, void* NewValue) {
+	return (void*)AK_Atomic_Exchange_U32_Relaxed((ak_atomic_u32 *)Object, (uint32_t)NewValue);
+}
+
+AKATOMICDEF void* AK_Atomic_Compare_Exchange_Ptr_Relaxed(ak_atomic_ptr* Object, void* OldValue, void* NewValue) {
+	return (void*)AK_Atomic_Compare_Exchange_U32_Relaxed((ak_atomic_u32 *)Object, (uint32_t)OldValue, (uint32_t)NewValue);
+}
+
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Ptr_Weak_Relaxed(ak_atomic_ptr* Object, void** OldValue, void* NewValue) {
+	return AK_Atomic_Compare_Exchange_U32_Weak_Relaxed((ak_atomic_u32 *)Object, (uint32_t *)OldValue, (uint32_t)NewValue);
+}
+#endif
+
+/*Compare exchange for boolean results*/
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Bool_U8_Relaxed(ak_atomic_u8* Object, uint8_t OldValue, uint8_t NewValue) {
+	return AK_Atomic_Compare_Exchange_U8_Relaxed(Object, OldValue, NewValue) == OldValue;
+}
+
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Bool_U16_Relaxed(ak_atomic_u16* Object, uint16_t OldValue, uint16_t NewValue) {
+	return AK_Atomic_Compare_Exchange_U16_Relaxed(Object, OldValue, NewValue) == OldValue;
+}
+
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Bool_U32_Relaxed(ak_atomic_u32* Object, uint32_t OldValue, uint32_t NewValue) {
+	return AK_Atomic_Compare_Exchange_U32_Relaxed(Object, OldValue, NewValue) == OldValue;
+}
+
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Bool_U64_Relaxed(ak_atomic_u64* Object, uint64_t OldValue, uint64_t NewValue) {
+	return AK_Atomic_Compare_Exchange_U64_Relaxed(Object, OldValue, NewValue) == OldValue;
+}
+
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Bool_Ptr_Relaxed(ak_atomic_ptr* Object, void* OldValue, void* NewValue) {
+	return AK_Atomic_Compare_Exchange_Ptr_Relaxed(Object, OldValue, NewValue) == OldValue;
+}
+
 /*Atomic functions with memory order parameters*/
 AKATOMICDEF uint8_t AK_Atomic_Load_U8(const ak_atomic_u8* Object, ak_atomic_memory_order MemoryOrder) {
+	uint8_t Result = AK_Atomic_Load_U8_Relaxed(Object);
+
 	switch (MemoryOrder) {
-		case AK_ATOMIC_MEMORY_ORDER_RELAXED: return AK_Atomic_Load_U8_Relaxed(Object);
-		
-		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE:
-		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: 
+		case AK_ATOMIC_MEMORY_ORDER_RELAXED: { /*Noop*/ } break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
 			AK_Atomic_Fence_Acquire();
-			return AK_Atomic_Load_U8_Relaxed(Object);
+		} break;
 
-		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST:
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
 			AK_Atomic_Fence_Seq_Cst();
-			return AK_Atomic_Load_U8_Relaxed(Object);
+		} break;
 
-		default:
+		default: {
 			AK_ATOMIC_ASSERT(!"Invalid param");
-			return AK_Atomic_Load_U8_Relaxed(Object);
+		} break;
 	}
+
+	return Result;
 }
 
 AKATOMICDEF void AK_Atomic_Store_U8(ak_atomic_u8* Object, uint8_t Value, ak_atomic_memory_order MemoryOrder) {
 	switch (MemoryOrder) {
-		case AK_ATOMIC_MEMORY_ORDER_RELAXED: 
-			AK_Atomic_Store_U8_Relaxed(Object, Value);
-			break;
+		case AK_ATOMIC_MEMORY_ORDER_RELAXED: { /*Noop*/ } break;
 
-		case AK_ATOMIC_MEMORY_ORDER_RELEASE:
-		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL:
-			AK_Atomic_Store_U8_Relaxed(Object, Value);
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
 			AK_Atomic_Fence_Release();
-			break;
+		} break;
 
-		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST:
-			AK_Atomic_Store_U8_Relaxed(Object, Value);
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
 			AK_Atomic_Fence_Seq_Cst();
-			break;
+		} break;
 
-		default:
+		default: {
 			AK_ATOMIC_ASSERT(!"Invalid param");
-			AK_Atomic_Store_U8_Relaxed(Object, Value);
-			break;
+		} break;
 	}
+
+	AK_Atomic_Store_U8_Relaxed(Object, Value);
 }
 
-AKATOMICDEF uint8_t AK_Atomic_Exchange_U8(ak_atomic_u8* Object, uint8_t NewValue, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF uint8_t AK_Atomic_Compare_Exchange_U8(ak_atomic_u8* Object, uint8_t OldValue, uint8_t NewValue, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF int8_t  AK_Atomic_Compare_Exchange_U8_Weak(ak_atomic_u8* Object, uint8_t* OldValue, uint8_t NewValue, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF int8_t  AK_Atomic_Compare_Exchange_Bool_U8(ak_atomic_u8* Object, uint8_t OldValue, uint8_t NewValue, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF int8_t  AK_Atomic_Compare_Exchange_U8_Weak_Explicit(ak_atomic_u8* Object, uint8_t* OldValue, uint8_t NewValue, ak_atomic_memory_order Success, ak_atomic_memory_order Failure);
-AKATOMICDEF int8_t  AK_Atomic_Compare_Exchange_Bool_U8_Explicit(ak_atomic_u8* Object, uint8_t OldValue, uint8_t NewValue, ak_atomic_memory_order Success, ak_atomic_memory_order Failure);
-AKATOMICDEF uint8_t AK_Atomic_Fetch_Add_U8(ak_atomic_u8* Object, int8_t Operand, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF uint8_t AK_Atomic_Increment_U8(ak_atomic_u8* Object, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF uint8_t AK_Atomic_Decrement_U8(ak_atomic_u8* Object, ak_atomic_memory_order MemoryOrder);
+AKATOMICDEF uint8_t AK_Atomic_Exchange_U8(ak_atomic_u8* Object, uint8_t NewValue, ak_atomic_memory_order MemoryOrder) {
+	uint8_t Result;
 
-AKATOMICDEF uint16_t AK_Atomic_Load_U16(const ak_atomic_u16* Object, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF void     AK_Atomic_Store_U16(ak_atomic_u16* Object, uint16_t Value, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF uint16_t AK_Atomic_Exchange_U16(ak_atomic_u16* Object, uint16_t NewValue, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF uint16_t AK_Atomic_Compare_Exchange_U16(ak_atomic_u16* Object, uint16_t OldValue, uint16_t NewValue, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF int8_t   AK_Atomic_Compare_Exchange_U16_Weak(ak_atomic_u16* Object, uint16_t* OldValue, uint16_t NewValue, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF int8_t   AK_Atomic_Compare_Exchange_Bool_U16(ak_atomic_u16* Object, uint16_t OldValue, uint16_t NewValue, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF int8_t   AK_Atomic_Compare_Exchange_U16_Weak_Explicit(ak_atomic_u16* Object, uint16_t* OldValue, uint16_t NewValue, ak_atomic_memory_order Success, ak_atomic_memory_order Failure);
-AKATOMICDEF int8_t   AK_Atomic_Compare_Exchange_Bool_U16_Explicit(ak_atomic_u16* Object, uint16_t OldValue, uint16_t NewValue, ak_atomic_memory_order Success, ak_atomic_memory_order Failure);
-AKATOMICDEF uint16_t AK_Atomic_Fetch_Add_U16(ak_atomic_u16* Object, int16_t Operand, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF uint16_t AK_Atomic_Increment_U16(ak_atomic_u16* Object, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF uint16_t AK_Atomic_Decrement_U16(ak_atomic_u16* Object, ak_atomic_memory_order MemoryOrder);
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Exchange_U8_Relaxed(Object, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
 
-AKATOMICDEF uint32_t AK_Atomic_Load_U32(const ak_atomic_u32* Object, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF void     AK_Atomic_Store_U32(ak_atomic_u32* Object, uint32_t Value, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF uint32_t AK_Atomic_Exchange_U32(ak_atomic_u32* Object, uint32_t NewValue, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF uint32_t AK_Atomic_Compare_Exchange_U32(ak_atomic_u32* Object, uint32_t OldValue, uint32_t NewValue, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF int8_t   AK_Atomic_Compare_Exchange_U32_Weak(ak_atomic_u32* Object, uint32_t* OldValue, uint32_t NewValue, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF int8_t   AK_Atomic_Compare_Exchange_Bool_U32(ak_atomic_u32* Object, uint32_t OldValue, uint32_t NewValue, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF int8_t   AK_Atomic_Compare_Exchange_U32_Weak_Explicit(ak_atomic_u32* Object, uint32_t* OldValue, uint32_t NewValue, ak_atomic_memory_order Success, ak_atomic_memory_order Failure);
-AKATOMICDEF int8_t   AK_Atomic_Compare_Exchange_Bool_U32_Explicit(ak_atomic_u32* Object, uint32_t OldValue, uint32_t NewValue, ak_atomic_memory_order Success, ak_atomic_memory_order Failure);
-AKATOMICDEF uint32_t AK_Atomic_Fetch_Add_U32(ak_atomic_u32* Object, int32_t Operand, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF uint32_t AK_Atomic_Increment_U32(ak_atomic_u32* Object, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF uint32_t AK_Atomic_Decrement_U32(ak_atomic_u32* Object, ak_atomic_memory_order MemoryOrder);
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Exchange_U8_Relaxed(Object, NewValue);
+		} break;
 
-AKATOMICDEF uint64_t  AK_Atomic_Load_U64(const ak_atomic_u64* Object, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF int8_t    AK_Atomic_Store_U64(ak_atomic_u64* Object, uint64_t Value, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF uint64_t  AK_Atomic_Exchange_U64(ak_atomic_u64* Object, uint64_t NewValue, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF uint64_t  AK_Atomic_Compare_Exchange_U64(ak_atomic_u64* Object, uint64_t OldValue, uint64_t NewValue, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF int8_t    AK_Atomic_Compare_Exchange_U64_Weak(ak_atomic_u64* Object, uint64_t* OldValue, uint64_t NewValue, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF int8_t    AK_Atomic_Compare_Exchange_Bool_U64(ak_atomic_u64* Object, uint64_t OldValue, uint64_t NewValue, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF int8_t    AK_Atomic_Compare_Exchange_U64_Weak_Explicit(ak_atomic_u64* Object, uint64_t* OldValue, uint64_t NewValue, ak_atomic_memory_order Success, ak_atomic_memory_order Failure);
-AKATOMICDEF int8_t    AK_Atomic_Compare_Exchange_Bool_U64_Explicit(ak_atomic_u64* Object, uint64_t OldValue, uint64_t NewValue, ak_atomic_memory_order Success, ak_atomic_memory_order Failure);
-AKATOMICDEF uint64_t  AK_Atomic_Fetch_Add_U64(ak_atomic_u64* Object, int64_t Operand, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF uint64_t  AK_Atomic_Increment_U64(ak_atomic_u64* Object, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF uint64_t  AK_Atomic_Decrement_U64(ak_atomic_u64* Object, ak_atomic_memory_order MemoryOrder);
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Exchange_U8_Relaxed(Object, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
 
-AKATOMICDEF void*  AK_Atomic_Load_Ptr(const ak_atomic_ptr* Object, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF void   AK_Atomic_Store_Ptr(ak_atomic_ptr* Object, void* Value, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF void*  AK_Atomic_Exchange_Ptr(ak_atomic_ptr* Object, void* NewValue, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF void*  AK_Atomic_Compare_Exchange_Ptr(ak_atomic_ptr* Object, void* OldValue, void* NewValue, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Ptr_Weak(ak_atomic_ptr* Object, void** OldValue, void* NewValue, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Bool_Ptr(ak_atomic_ptr* Object, void* OldValue, void* NewValue, ak_atomic_memory_order MemoryOrder);
-AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Ptr_Weak_Explicit(ak_atomic_ptr* Object, void** OldValue, void* NewValue, ak_atomic_memory_order Success, ak_atomic_memory_order Failure);
-AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Bool_Ptr_Explicit(ak_atomic_ptr* Object, void* OldValue, void* NewValue, ak_atomic_memory_order Success, ak_atomic_memory_order Failure);
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Exchange_U8_Relaxed(Object, NewValue);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Exchange_U8_Relaxed(Object, NewValue);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF uint8_t AK_Atomic_Compare_Exchange_U8(ak_atomic_u8* Object, uint8_t OldValue, uint8_t NewValue, ak_atomic_memory_order MemoryOrder) {
+	uint8_t Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Compare_Exchange_U8_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Compare_Exchange_U8_Relaxed(Object, OldValue, NewValue);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Compare_Exchange_U8_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Compare_Exchange_U8_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Compare_Exchange_U8_Relaxed(Object, OldValue, NewValue);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_U8_Weak(ak_atomic_u8* Object, uint8_t* OldValue, uint8_t NewValue, ak_atomic_memory_order MemoryOrder) {
+	int8_t Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Compare_Exchange_U8_Weak_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Compare_Exchange_U8_Weak_Relaxed(Object, OldValue, NewValue);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Compare_Exchange_U8_Weak_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Compare_Exchange_U8_Weak_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Compare_Exchange_U8_Weak_Relaxed(Object, OldValue, NewValue);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Bool_U8(ak_atomic_u8* Object, uint8_t OldValue, uint8_t NewValue, ak_atomic_memory_order MemoryOrder) {
+	int8_t Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Compare_Exchange_Bool_U8_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Compare_Exchange_Bool_U8_Relaxed(Object, OldValue, NewValue);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Compare_Exchange_Bool_U8_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Compare_Exchange_Bool_U8_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Compare_Exchange_Bool_U8_Relaxed(Object, OldValue, NewValue);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_U8_Weak_Explicit(ak_atomic_u8* Object, uint8_t* OldValue, uint8_t NewValue, ak_atomic_memory_order Success, ak_atomic_memory_order Failure) {
+	int8_t Result;
+
+	switch (Success) {
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE:
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+	}
+
+	Result = AK_Atomic_Compare_Exchange_U8_Weak_Relaxed(Object, OldValue, NewValue);
+
+	if (Result) {
+		switch (Success) {
+			case AK_ATOMIC_MEMORY_ORDER_ACQUIRE:
+			case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+				AK_Atomic_Fence_Acquire();
+			} break;
+
+			case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+				AK_Atomic_Fence_Seq_Cst();
+			} break;
+		}
+	} else {
+		switch (Failure) {
+			case AK_ATOMIC_MEMORY_ORDER_ACQUIRE:
+			case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+				AK_Atomic_Fence_Acquire();
+			} break;
+
+			case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+				AK_Atomic_Fence_Seq_Cst();
+			} break;
+		}
+	}
+
+	return Result;
+}
+
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Bool_U8_Explicit(ak_atomic_u8* Object, uint8_t OldValue, uint8_t NewValue, ak_atomic_memory_order Success, ak_atomic_memory_order Failure) {
+	int8_t Result;
+
+	switch (Success) {
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE:
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+	}
+
+	Result = AK_Atomic_Compare_Exchange_Bool_U8_Relaxed(Object, OldValue, NewValue);
+
+	if (Result) {
+		switch (Success) {
+			case AK_ATOMIC_MEMORY_ORDER_ACQUIRE:
+			case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+				AK_Atomic_Fence_Acquire();
+			} break;
+
+			case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+				AK_Atomic_Fence_Seq_Cst();
+			} break;
+		}
+	} else {
+		switch (Failure) {
+			case AK_ATOMIC_MEMORY_ORDER_ACQUIRE:
+			case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+				AK_Atomic_Fence_Acquire();
+			} break;
+
+			case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+				AK_Atomic_Fence_Seq_Cst();
+			} break;
+		}
+	}
+
+	return Result;
+}
+
+AKATOMICDEF uint8_t AK_Atomic_Fetch_Add_U8(ak_atomic_u8* Object, int8_t Operand, ak_atomic_memory_order MemoryOrder) {
+	uint8_t Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Fetch_Add_U8_Relaxed(Object, Operand);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Fetch_Add_U8_Relaxed(Object, Operand);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Fetch_Add_U8_Relaxed(Object, Operand);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Fetch_Add_U8_Relaxed(Object, Operand);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Fetch_Add_U8_Relaxed(Object, Operand);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF uint8_t AK_Atomic_Increment_U8(ak_atomic_u8* Object, ak_atomic_memory_order MemoryOrder) {
+	uint8_t Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Increment_U8_Relaxed(Object);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Increment_U8_Relaxed(Object);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Increment_U8_Relaxed(Object);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Increment_U8_Relaxed(Object);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Increment_U8_Relaxed(Object);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF uint8_t AK_Atomic_Decrement_U8(ak_atomic_u8* Object, ak_atomic_memory_order MemoryOrder) {
+	uint8_t Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Decrement_U8_Relaxed(Object);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Decrement_U8_Relaxed(Object);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Decrement_U8_Relaxed(Object);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Decrement_U8_Relaxed(Object);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Decrement_U8_Relaxed(Object);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF uint16_t AK_Atomic_Load_U16(const ak_atomic_u16* Object, ak_atomic_memory_order MemoryOrder) {
+	uint16_t Result = AK_Atomic_Load_U16_Relaxed(Object);
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_RELAXED: { /*Noop*/ } break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			AK_ATOMIC_ASSERT(!"Invalid param");
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF void AK_Atomic_Store_U16(ak_atomic_u16* Object, uint16_t Value, ak_atomic_memory_order MemoryOrder) {
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_RELAXED: { /*Noop*/ } break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			AK_ATOMIC_ASSERT(!"Invalid param");
+		} break;
+	}
+
+	AK_Atomic_Store_U16_Relaxed(Object, Value);
+}
+
+AKATOMICDEF uint16_t AK_Atomic_Exchange_U16(ak_atomic_u16* Object, uint16_t NewValue, ak_atomic_memory_order MemoryOrder) {
+	uint16_t Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Exchange_U16_Relaxed(Object, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Exchange_U16_Relaxed(Object, NewValue);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Exchange_U16_Relaxed(Object, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Exchange_U16_Relaxed(Object, NewValue);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Exchange_U16_Relaxed(Object, NewValue);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF uint16_t AK_Atomic_Compare_Exchange_U16(ak_atomic_u16* Object, uint16_t OldValue, uint16_t NewValue, ak_atomic_memory_order MemoryOrder) {
+	uint16_t Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Compare_Exchange_U16_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Compare_Exchange_U16_Relaxed(Object, OldValue, NewValue);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Compare_Exchange_U16_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Compare_Exchange_U16_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Compare_Exchange_U16_Relaxed(Object, OldValue, NewValue);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_U16_Weak(ak_atomic_u16* Object, uint16_t* OldValue, uint16_t NewValue, ak_atomic_memory_order MemoryOrder) {
+	int8_t Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Compare_Exchange_U16_Weak_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Compare_Exchange_U16_Weak_Relaxed(Object, OldValue, NewValue);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Compare_Exchange_U16_Weak_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Compare_Exchange_U16_Weak_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Compare_Exchange_U16_Weak_Relaxed(Object, OldValue, NewValue);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Bool_U16(ak_atomic_u16* Object, uint16_t OldValue, uint16_t NewValue, ak_atomic_memory_order MemoryOrder) {
+	int8_t Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Compare_Exchange_Bool_U16_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Compare_Exchange_Bool_U16_Relaxed(Object, OldValue, NewValue);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Compare_Exchange_Bool_U16_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Compare_Exchange_Bool_U16_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Compare_Exchange_Bool_U16_Relaxed(Object, OldValue, NewValue);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_U16_Weak_Explicit(ak_atomic_u16* Object, uint16_t* OldValue, uint16_t NewValue, ak_atomic_memory_order Success, ak_atomic_memory_order Failure) {
+	int8_t Result;
+
+	switch (Success) {
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE:
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+	}
+
+	Result = AK_Atomic_Compare_Exchange_U16_Weak_Relaxed(Object, OldValue, NewValue);
+
+	if (Result) {
+		switch (Success) {
+			case AK_ATOMIC_MEMORY_ORDER_ACQUIRE:
+			case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+				AK_Atomic_Fence_Acquire();
+			} break;
+
+			case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+				AK_Atomic_Fence_Seq_Cst();
+			} break;
+		}
+	} else {
+		switch (Failure) {
+			case AK_ATOMIC_MEMORY_ORDER_ACQUIRE:
+			case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+				AK_Atomic_Fence_Acquire();
+			} break;
+
+			case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+				AK_Atomic_Fence_Seq_Cst();
+			} break;
+		}
+	}
+
+	return Result;
+}
+
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Bool_U16_Explicit(ak_atomic_u16* Object, uint16_t OldValue, uint16_t NewValue, ak_atomic_memory_order Success, ak_atomic_memory_order Failure) {
+	int8_t Result;
+
+	switch (Success) {
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE:
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+	}
+
+	Result = AK_Atomic_Compare_Exchange_Bool_U16_Relaxed(Object, OldValue, NewValue);
+
+	if (Result) {
+		switch (Success) {
+			case AK_ATOMIC_MEMORY_ORDER_ACQUIRE:
+			case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+				AK_Atomic_Fence_Acquire();
+			} break;
+
+			case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+				AK_Atomic_Fence_Seq_Cst();
+			} break;
+		}
+	} else {
+		switch (Failure) {
+			case AK_ATOMIC_MEMORY_ORDER_ACQUIRE:
+			case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+				AK_Atomic_Fence_Acquire();
+			} break;
+
+			case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+				AK_Atomic_Fence_Seq_Cst();
+			} break;
+		}
+	}
+
+	return Result;
+}
+
+AKATOMICDEF uint16_t AK_Atomic_Fetch_Add_U16(ak_atomic_u16* Object, int16_t Operand, ak_atomic_memory_order MemoryOrder) {
+	uint16_t Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Fetch_Add_U16_Relaxed(Object, Operand);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Fetch_Add_U16_Relaxed(Object, Operand);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Fetch_Add_U16_Relaxed(Object, Operand);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Fetch_Add_U16_Relaxed(Object, Operand);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Fetch_Add_U16_Relaxed(Object, Operand);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF uint16_t AK_Atomic_Increment_U16(ak_atomic_u16* Object, ak_atomic_memory_order MemoryOrder) {
+	uint16_t Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Increment_U16_Relaxed(Object);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Increment_U16_Relaxed(Object);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Increment_U16_Relaxed(Object);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Increment_U16_Relaxed(Object);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Increment_U16_Relaxed(Object);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF uint16_t AK_Atomic_Decrement_U16(ak_atomic_u16* Object, ak_atomic_memory_order MemoryOrder) {
+	uint16_t Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Decrement_U16_Relaxed(Object);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Decrement_U16_Relaxed(Object);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Decrement_U16_Relaxed(Object);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Decrement_U16_Relaxed(Object);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Decrement_U16_Relaxed(Object);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF uint32_t AK_Atomic_Load_U32(const ak_atomic_u32* Object, ak_atomic_memory_order MemoryOrder) {
+	uint32_t Result = AK_Atomic_Load_U32_Relaxed(Object);
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_RELAXED: { /*Noop*/ } break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			AK_ATOMIC_ASSERT(!"Invalid param");
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF void AK_Atomic_Store_U32(ak_atomic_u32* Object, uint32_t Value, ak_atomic_memory_order MemoryOrder) {
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_RELAXED: { /*Noop*/ } break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			AK_ATOMIC_ASSERT(!"Invalid param");
+		} break;
+	}
+
+	AK_Atomic_Store_U32_Relaxed(Object, Value);
+}
+
+AKATOMICDEF uint32_t AK_Atomic_Exchange_U32(ak_atomic_u32* Object, uint32_t NewValue, ak_atomic_memory_order MemoryOrder) {
+	uint32_t Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Exchange_U32_Relaxed(Object, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Exchange_U32_Relaxed(Object, NewValue);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Exchange_U32_Relaxed(Object, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Exchange_U32_Relaxed(Object, NewValue);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Exchange_U32_Relaxed(Object, NewValue);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF uint32_t AK_Atomic_Compare_Exchange_U32(ak_atomic_u32* Object, uint32_t OldValue, uint32_t NewValue, ak_atomic_memory_order MemoryOrder) {
+	uint32_t Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Compare_Exchange_U32_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Compare_Exchange_U32_Relaxed(Object, OldValue, NewValue);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Compare_Exchange_U32_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Compare_Exchange_U32_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Compare_Exchange_U32_Relaxed(Object, OldValue, NewValue);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_U32_Weak(ak_atomic_u32* Object, uint32_t* OldValue, uint32_t NewValue, ak_atomic_memory_order MemoryOrder) {
+	int8_t Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Compare_Exchange_U32_Weak_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Compare_Exchange_U32_Weak_Relaxed(Object, OldValue, NewValue);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Compare_Exchange_U32_Weak_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Compare_Exchange_U32_Weak_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Compare_Exchange_U32_Weak_Relaxed(Object, OldValue, NewValue);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Bool_U32(ak_atomic_u32* Object, uint32_t OldValue, uint32_t NewValue, ak_atomic_memory_order MemoryOrder) {
+	int8_t Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Compare_Exchange_Bool_U32_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Compare_Exchange_Bool_U32_Relaxed(Object, OldValue, NewValue);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Compare_Exchange_Bool_U32_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Compare_Exchange_Bool_U32_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Compare_Exchange_Bool_U32_Relaxed(Object, OldValue, NewValue);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_U32_Weak_Explicit(ak_atomic_u32* Object, uint32_t* OldValue, uint32_t NewValue, ak_atomic_memory_order Success, ak_atomic_memory_order Failure) {
+	int8_t Result;
+
+	switch (Success) {
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE:
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+	}
+
+	Result = AK_Atomic_Compare_Exchange_U32_Weak_Relaxed(Object, OldValue, NewValue);
+
+	if (Result) {
+		switch (Success) {
+			case AK_ATOMIC_MEMORY_ORDER_ACQUIRE:
+			case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+				AK_Atomic_Fence_Acquire();
+			} break;
+
+			case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+				AK_Atomic_Fence_Seq_Cst();
+			} break;
+		}
+	} else {
+		switch (Failure) {
+			case AK_ATOMIC_MEMORY_ORDER_ACQUIRE:
+			case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+				AK_Atomic_Fence_Acquire();
+			} break;
+
+			case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+				AK_Atomic_Fence_Seq_Cst();
+			} break;
+		}
+	}
+
+	return Result;
+}
+
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Bool_U32_Explicit(ak_atomic_u32* Object, uint32_t OldValue, uint32_t NewValue, ak_atomic_memory_order Success, ak_atomic_memory_order Failure) {
+	int8_t Result;
+
+	switch (Success) {
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE:
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+	}
+
+	Result = AK_Atomic_Compare_Exchange_Bool_U32_Relaxed(Object, OldValue, NewValue);
+
+	if (Result) {
+		switch (Success) {
+			case AK_ATOMIC_MEMORY_ORDER_ACQUIRE:
+			case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+				AK_Atomic_Fence_Acquire();
+			} break;
+
+			case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+				AK_Atomic_Fence_Seq_Cst();
+			} break;
+		}
+	} else {
+		switch (Failure) {
+			case AK_ATOMIC_MEMORY_ORDER_ACQUIRE:
+			case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+				AK_Atomic_Fence_Acquire();
+			} break;
+
+			case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+				AK_Atomic_Fence_Seq_Cst();
+			} break;
+		}
+	}
+
+	return Result;
+}
+
+AKATOMICDEF uint32_t AK_Atomic_Fetch_Add_U32(ak_atomic_u32* Object, int32_t Operand, ak_atomic_memory_order MemoryOrder) {
+	uint32_t Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Fetch_Add_U32_Relaxed(Object, Operand);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Fetch_Add_U32_Relaxed(Object, Operand);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Fetch_Add_U32_Relaxed(Object, Operand);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Fetch_Add_U32_Relaxed(Object, Operand);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Fetch_Add_U32_Relaxed(Object, Operand);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF uint32_t AK_Atomic_Increment_U32(ak_atomic_u32* Object, ak_atomic_memory_order MemoryOrder) {
+	uint32_t Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Increment_U32_Relaxed(Object);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Increment_U32_Relaxed(Object);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Increment_U32_Relaxed(Object);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Increment_U32_Relaxed(Object);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Increment_U32_Relaxed(Object);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF uint32_t AK_Atomic_Decrement_U32(ak_atomic_u32* Object, ak_atomic_memory_order MemoryOrder) {
+	uint32_t Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Decrement_U32_Relaxed(Object);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Decrement_U32_Relaxed(Object);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Decrement_U32_Relaxed(Object);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Decrement_U32_Relaxed(Object);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Decrement_U32_Relaxed(Object);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Load_U64(const ak_atomic_u64* Object, ak_atomic_memory_order MemoryOrder) {
+	uint64_t Result = AK_Atomic_Load_U64_Relaxed(Object);
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_RELAXED: { /*Noop*/ } break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			AK_ATOMIC_ASSERT(!"Invalid param");
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF void AK_Atomic_Store_U64(ak_atomic_u64* Object, uint64_t Value, ak_atomic_memory_order MemoryOrder) {
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_RELAXED: { /*Noop*/ } break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			AK_ATOMIC_ASSERT(!"Invalid param");
+		} break;
+	}
+
+	AK_Atomic_Store_U64_Relaxed(Object, Value);
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Exchange_U64(ak_atomic_u64* Object, uint64_t NewValue, ak_atomic_memory_order MemoryOrder) {
+	uint64_t Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Exchange_U64_Relaxed(Object, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Exchange_U64_Relaxed(Object, NewValue);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Exchange_U64_Relaxed(Object, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Exchange_U64_Relaxed(Object, NewValue);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Exchange_U64_Relaxed(Object, NewValue);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Compare_Exchange_U64(ak_atomic_u64* Object, uint64_t OldValue, uint64_t NewValue, ak_atomic_memory_order MemoryOrder) {
+	uint64_t Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Compare_Exchange_U64_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Compare_Exchange_U64_Relaxed(Object, OldValue, NewValue);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Compare_Exchange_U64_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Compare_Exchange_U64_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Compare_Exchange_U64_Relaxed(Object, OldValue, NewValue);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_U64_Weak(ak_atomic_u64* Object, uint64_t* OldValue, uint64_t NewValue, ak_atomic_memory_order MemoryOrder) {
+	int8_t Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Compare_Exchange_U64_Weak_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Compare_Exchange_U64_Weak_Relaxed(Object, OldValue, NewValue);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Compare_Exchange_U64_Weak_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Compare_Exchange_U64_Weak_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Compare_Exchange_U64_Weak_Relaxed(Object, OldValue, NewValue);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Bool_U64(ak_atomic_u64* Object, uint64_t OldValue, uint64_t NewValue, ak_atomic_memory_order MemoryOrder) {
+	int8_t Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Compare_Exchange_Bool_U64_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Compare_Exchange_Bool_U64_Relaxed(Object, OldValue, NewValue);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Compare_Exchange_Bool_U64_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Compare_Exchange_Bool_U64_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Compare_Exchange_Bool_U64_Relaxed(Object, OldValue, NewValue);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_U64_Weak_Explicit(ak_atomic_u64* Object, uint64_t* OldValue, uint64_t NewValue, ak_atomic_memory_order Success, ak_atomic_memory_order Failure) {
+	int8_t Result;
+
+	switch (Success) {
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE:
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+	}
+
+	Result = AK_Atomic_Compare_Exchange_U64_Weak_Relaxed(Object, OldValue, NewValue);
+
+	if (Result) {
+		switch (Success) {
+			case AK_ATOMIC_MEMORY_ORDER_ACQUIRE:
+			case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+				AK_Atomic_Fence_Acquire();
+			} break;
+
+			case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+				AK_Atomic_Fence_Seq_Cst();
+			} break;
+		}
+	} else {
+		switch (Failure) {
+			case AK_ATOMIC_MEMORY_ORDER_ACQUIRE:
+			case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+				AK_Atomic_Fence_Acquire();
+			} break;
+
+			case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+				AK_Atomic_Fence_Seq_Cst();
+			} break;
+		}
+	}
+
+	return Result;
+}
+
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Bool_U64_Explicit(ak_atomic_u64* Object, uint64_t OldValue, uint64_t NewValue, ak_atomic_memory_order Success, ak_atomic_memory_order Failure) {
+	int8_t Result;
+
+	switch (Success) {
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE:
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+	}
+
+	Result = AK_Atomic_Compare_Exchange_Bool_U64_Relaxed(Object, OldValue, NewValue);
+
+	if (Result) {
+		switch (Success) {
+			case AK_ATOMIC_MEMORY_ORDER_ACQUIRE:
+			case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+				AK_Atomic_Fence_Acquire();
+			} break;
+
+			case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+				AK_Atomic_Fence_Seq_Cst();
+			} break;
+		}
+	} else {
+		switch (Failure) {
+			case AK_ATOMIC_MEMORY_ORDER_ACQUIRE:
+			case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+				AK_Atomic_Fence_Acquire();
+			} break;
+
+			case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+				AK_Atomic_Fence_Seq_Cst();
+			} break;
+		}
+	}
+
+	return Result;
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Fetch_Add_U64(ak_atomic_u64* Object, int64_t Operand, ak_atomic_memory_order MemoryOrder) {
+	uint64_t Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Fetch_Add_U64_Relaxed(Object, Operand);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Fetch_Add_U64_Relaxed(Object, Operand);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Fetch_Add_U64_Relaxed(Object, Operand);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Fetch_Add_U64_Relaxed(Object, Operand);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Fetch_Add_U64_Relaxed(Object, Operand);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Increment_U64(ak_atomic_u64* Object, ak_atomic_memory_order MemoryOrder) {
+	uint64_t Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Increment_U64_Relaxed(Object);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Increment_U64_Relaxed(Object);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Increment_U64_Relaxed(Object);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Increment_U64_Relaxed(Object);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Increment_U64_Relaxed(Object);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Decrement_U64(ak_atomic_u64* Object, ak_atomic_memory_order MemoryOrder) {
+	uint64_t Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Decrement_U64_Relaxed(Object);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Decrement_U64_Relaxed(Object);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Decrement_U64_Relaxed(Object);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Decrement_U64_Relaxed(Object);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Decrement_U64_Relaxed(Object);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF void* AK_Atomic_Load_Ptr(const ak_atomic_ptr* Object, ak_atomic_memory_order MemoryOrder) {
+	void* Result = AK_Atomic_Load_Ptr_Relaxed(Object);
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_RELAXED: { /*Noop*/ } break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			AK_ATOMIC_ASSERT(!"Invalid param");
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF void AK_Atomic_Store_Ptr(ak_atomic_ptr* Object, void* Value, ak_atomic_memory_order MemoryOrder) {
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_RELAXED: { /*Noop*/ } break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			AK_ATOMIC_ASSERT(!"Invalid param");
+		} break;
+	}
+
+	AK_Atomic_Store_Ptr_Relaxed(Object, Value);
+}
+
+AKATOMICDEF void* AK_Atomic_Exchange_Ptr(ak_atomic_ptr* Object, void* NewValue, ak_atomic_memory_order MemoryOrder) {
+	void* Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Exchange_Ptr_Relaxed(Object, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Exchange_Ptr_Relaxed(Object, NewValue);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Exchange_Ptr_Relaxed(Object, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Exchange_Ptr_Relaxed(Object, NewValue);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Exchange_Ptr_Relaxed(Object, NewValue);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF void* AK_Atomic_Compare_Exchange_Ptr(ak_atomic_ptr* Object, void* OldValue, void* NewValue, ak_atomic_memory_order MemoryOrder) {
+	void* Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Compare_Exchange_Ptr_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Compare_Exchange_Ptr_Relaxed(Object, OldValue, NewValue);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Compare_Exchange_Ptr_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Compare_Exchange_Ptr_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Compare_Exchange_Ptr_Relaxed(Object, OldValue, NewValue);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Ptr_Weak(ak_atomic_ptr* Object, void** OldValue, void* NewValue, ak_atomic_memory_order MemoryOrder) {
+	int8_t Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Compare_Exchange_Ptr_Weak_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Compare_Exchange_Ptr_Weak_Relaxed(Object, OldValue, NewValue);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Compare_Exchange_Ptr_Weak_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Compare_Exchange_Ptr_Weak_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Compare_Exchange_Ptr_Weak_Relaxed(Object, OldValue, NewValue);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Bool_Ptr(ak_atomic_ptr* Object, void* OldValue, void* NewValue, ak_atomic_memory_order MemoryOrder) {
+	int8_t Result;
+
+	switch (MemoryOrder) {
+		case AK_ATOMIC_MEMORY_ORDER_ACQUIRE: {
+			Result = AK_Atomic_Compare_Exchange_Bool_Ptr_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Compare_Exchange_Bool_Ptr_Relaxed(Object, OldValue, NewValue);
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+			Result = AK_Atomic_Compare_Exchange_Bool_Ptr_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Acquire();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+			Result = AK_Atomic_Compare_Exchange_Bool_Ptr_Relaxed(Object, OldValue, NewValue);
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+
+		default: {
+			Assert(MemoryOrder == AK_ATOMIC_MEMORY_ORDER_RELAXED);
+			Result = AK_Atomic_Compare_Exchange_Bool_Ptr_Relaxed(Object, OldValue, NewValue);
+		} break;
+	}
+
+	return Result;
+}
+
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Ptr_Weak_Explicit(ak_atomic_ptr* Object, void** OldValue, void* NewValue, ak_atomic_memory_order Success, ak_atomic_memory_order Failure) {
+	int8_t Result;
+
+	switch (Success) {
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE:
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+	}
+
+	Result = AK_Atomic_Compare_Exchange_Ptr_Weak_Relaxed(Object, OldValue, NewValue);
+
+	if (Result) {
+		switch (Success) {
+			case AK_ATOMIC_MEMORY_ORDER_ACQUIRE:
+			case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+				AK_Atomic_Fence_Acquire();
+			} break;
+
+			case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+				AK_Atomic_Fence_Seq_Cst();
+			} break;
+		}
+	} else {
+		switch (Failure) {
+			case AK_ATOMIC_MEMORY_ORDER_ACQUIRE:
+			case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+				AK_Atomic_Fence_Acquire();
+			} break;
+
+			case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+				AK_Atomic_Fence_Seq_Cst();
+			} break;
+		}
+	}
+
+	return Result;
+}
+
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Bool_Ptr_Explicit(ak_atomic_ptr* Object, void* OldValue, void* NewValue, ak_atomic_memory_order Success, ak_atomic_memory_order Failure) {
+	int8_t Result;
+
+	switch (Success) {
+		case AK_ATOMIC_MEMORY_ORDER_RELEASE:
+		case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+			AK_Atomic_Fence_Release();
+		} break;
+
+		case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+			AK_Atomic_Fence_Seq_Cst();
+		} break;
+	}
+
+	Result = AK_Atomic_Compare_Exchange_Bool_Ptr_Relaxed(Object, OldValue, NewValue);
+
+	if (Result) {
+		switch (Success) {
+			case AK_ATOMIC_MEMORY_ORDER_ACQUIRE:
+			case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+				AK_Atomic_Fence_Acquire();
+			} break;
+
+			case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+				AK_Atomic_Fence_Seq_Cst();
+			} break;
+		}
+	} else {
+		switch (Failure) {
+			case AK_ATOMIC_MEMORY_ORDER_ACQUIRE:
+			case AK_ATOMIC_MEMORY_ORDER_ACQ_REL: {
+				AK_Atomic_Fence_Acquire();
+			} break;
+
+			case AK_ATOMIC_MEMORY_ORDER_SEQ_CST: {
+				AK_Atomic_Fence_Seq_Cst();
+			} break;
+		}
+	}
+
+	return Result;
+}
 
 /*CPU and compiler specific architecture (all other atomics are built ontop of these)*/
 #if defined(AK_ATOMIC_COMPILER_MSVC)
@@ -891,6 +2629,10 @@ AKATOMICDEF uint64_t AK_Query_Performance_Frequency(void) {
 
 #ifdef AK_ATOMIC_COMPILER_MSVC
 #pragma warning(pop)
+#endif
+
+#ifdef AK_ATOMIC_COMPILER_CLANG
+#pragma clang diagnostic pop
 #endif
 
 #endif
