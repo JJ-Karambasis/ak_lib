@@ -13,6 +13,45 @@
 	#else
 		#error "Unrecognized Platform!"
 	#endif
+#elif defined(__GNUC__)
+	#define AK_ATOMIC_COMPILER_GCC
+	#define AK_ATOMIC_OS_POSIX
+
+	#if defined(__APPLE__)
+		#define AK_ATOMIC_OS_OSX
+	#endif
+
+	#if defined(__arm__)
+		#define AK_ATOMIC_CPU_ARM
+		#define AK_ATOMIC_PTR_SIZE 4
+		
+        #if defined(__ARM_ARCH_7__) || defined(__ARM_ARCH_7A__) || defined(__ARM_ARCH_7EM__) || defined(__ARM_ARCH_7R__) || defined(__ARM_ARCH_7M__) || defined(__ARM_ARCH_7S__)
+            /*ARMv7*/
+            #define AK_ATOMIC_ARM_VERSION 7
+        #elif defined(__ARM_ARCH_6__) || defined(__ARM_ARCH_6J__) || defined(__ARM_ARCH_6K__) || defined(__ARM_ARCH_6T2__) || defined(__ARM_ARCH_6Z__) || defined(__ARM_ARCH_6ZK__)
+            /*ARMv6*/
+            #define AK_ATOMIC_ARM_VERSION 6
+        #else
+            /*Could support earlier ARM versions at some point using compiler barriers and swp instruction*/
+            #error "Unrecognized ARM CPU!"
+        #endif
+
+		#if defined(__thumb__)
+            #define AK_ATOMIC_ARM_THUMB 1
+		#endif
+	#elif defined(__aarch64__)
+		#define AK_ATOMIC_CPU_AARCH64
+		#define AK_ATOMIC_PTR_SIZE 8
+		#define AK_ATOMIC_ARM_VERSION 8
+	#elif defined(__x86_64__)
+		#define AK_ATOMIC_CPU_X86
+		#define AK_ATOMIC_PTR_SIZE 8   
+	#elif defined(__i386__)
+		#define AK_ATOMIC_CPU_X86
+		#define AK_ATOMIC_PTR_SIZE 4    
+	#else
+		#error "Not Implemented"
+	#endif
 #else
 	#error "Unrecognized Platform!"
 #endif
@@ -98,6 +137,39 @@ typedef struct {
 #define AK_Atomic_Fence_Acquire() _ReadBarrier()
 #define AK_Atomic_Fence_Release() _WriteBarrier()
 #define AK_Atomic_Fence_Seq_Cst() _ReadWriteBarrier(); MemoryBarrier()
+
+#elif defined(AK_ATOMIC_COMPILER_GCC) && (defined(AK_ATOMIC_CPU_AARCH64) || defined(AK_ATOMIC_CPU_ARM))
+
+typedef struct {
+	volatile uint8_t Nonatomic;
+} __attribute__((aligned(1))) ak_atomic_u8;
+
+typedef struct {
+	volatile uint16_t Nonatomic;
+} __attribute__((aligned(2))) ak_atomic_u16;
+
+typedef struct {
+	volatile uint32_t Nonatomic;
+} __attribute__((aligned(4))) ak_atomic_u32;
+
+typedef struct {
+	volatile uint64_t Nonatomic;
+} __attribute__((aligned(8))) ak_atomic_u64;
+
+typedef struct {
+	void* volatile Nonatomic;
+} __attribute__((aligned(AK_ATOMIC_PTR_SIZE))) ak_atomic_ptr;
+
+
+#if AK_ATOMIC_ARM_VERSION >= 7
+#define AK_Atomic_Fence_Acquire() __asm__ volatile("dmb ish" ::: "memory")
+#define AK_Atomic_Fence_Release() __asm__ volatile("dmb ish" ::: "memory")
+#define AK_Atomic_Fence_Seq_Cst() __asm__ volatile("dmb ish" ::: "memory")
+#else
+#define AK_Atomic_Fence_Acquire() __asm__ volatile("mcr p15, 0, %0, c7, c10, 5" :: "r"(0) : "memory")
+#define AK_Atomic_Fence_Release() __asm__ volatile("mcr p15, 0, %0, c7, c10, 5" :: "r"(0) : "memory")
+#define AK_Atomic_Fence_Seq_Cst() __asm__ volatile("mcr p15, 0, %0, c7, c10, 5" :: "r"(0) : "memory")
+#endif
 
 #else
 #error "Not Implemented!"
@@ -318,6 +390,37 @@ typedef struct {
 	DWORD Index;
 } ak_tls;
 
+#elif defined(AK_ATOMIC_OS_POSIX)
+
+#include <pthread.h>
+
+typedef struct {
+	ak_thread Base;
+	pthread_t Thread;
+} ak_posix_thread;
+
+typedef struct {
+	pthread_mutex_t Mutex;
+} ak_mutex;
+
+#if defined(AK_ATOMIC_OS_OSX)
+#include <mach/mach.h>
+
+typedef struct {
+	semaphore_t Semaphore;
+} ak_semaphore;
+#else
+#error "Not Implemented!"
+#endif
+
+typedef struct {
+	pthread_cond_t ConditionVariable;
+} ak_condition_variable;
+
+typedef struct {
+	pthread_key_t Key;
+} ak_tls;
+
 #else
 #error "Not Implemented!"
 #endif
@@ -446,6 +549,39 @@ AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Ptr_Weak_Relaxed(ak_atomic_ptr* Ob
 	return AK_Atomic_Compare_Exchange_U32_Weak_Relaxed((ak_atomic_u32 *)Object, (uint32_t *)OldValue, (uint32_t)NewValue);
 }
 #endif
+
+/*Weak compare exchanges*/
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_U8_Weak_Relaxed(ak_atomic_u8* Object, uint8_t* OldValue, uint8_t NewValue) {
+    uint8_t Old = *OldValue;
+    uint8_t Previous = AK_Atomic_Compare_Exchange_U8_Relaxed(Object, Old, NewValue);
+    int8_t Result = (Previous == Old);
+    if(!Result) *OldValue = Previous;
+    return Result;
+}
+
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_U16_Weak_Relaxed(ak_atomic_u16* Object, uint16_t* OldValue, uint16_t NewValue) {
+    uint16_t Old = *OldValue;
+    uint16_t Previous = AK_Atomic_Compare_Exchange_U16_Relaxed(Object, Old, NewValue);
+    int8_t Result = (Previous == Old);
+    if(!Result) *OldValue = Previous;
+    return Result;
+}
+
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_U32_Weak_Relaxed(ak_atomic_u32* Object, uint32_t* OldValue, uint32_t NewValue) {
+    uint32_t Old = *OldValue;
+    uint32_t Previous = AK_Atomic_Compare_Exchange_U32_Relaxed(Object, Old, NewValue);
+    int8_t Result = (Previous == Old);
+    if(!Result) *OldValue = Previous;
+    return Result;
+}
+
+AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_U64_Weak_Relaxed(ak_atomic_u64* Object, uint64_t* OldValue, uint64_t NewValue) {
+    uint64_t Old = *OldValue;
+    uint64_t Previous = AK_Atomic_Compare_Exchange_U64_Relaxed(Object, Old, NewValue);
+    int8_t Result = (Previous == Old);
+    if(!Result) *OldValue = Previous;
+    return Result;
+}
 
 /*Compare exchange for boolean results*/
 AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_Bool_U8_Relaxed(ak_atomic_u8* Object, uint8_t OldValue, uint8_t NewValue) {
@@ -2249,14 +2385,6 @@ AKATOMICDEF uint8_t AK_Atomic_Compare_Exchange_U8_Relaxed(ak_atomic_u8* Object, 
 	return (uint8_t)_InterlockedCompareExchange8((volatile char*)Object, (char)NewValue, (char)OldValue);
 }
 
-AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_U8_Weak_Relaxed(ak_atomic_u8* Object, uint8_t* OldValue, uint8_t NewValue) {
-	uint8_t Expected = *OldValue;
-	uint8_t Previous = (uint8_t)_InterlockedCompareExchange8((volatile char*)Object, (char)NewValue, (char)Expected);
-	int8_t Result = Previous == Expected;
-	if (!Result) *OldValue = Previous;
-	return Result;
-}
-
 AKATOMICDEF uint8_t AK_Atomic_Fetch_Add_U8_Relaxed(ak_atomic_u8* Object, int8_t Operand) {
 	return (uint8_t)_InterlockedExchangeAdd8((volatile char*)Object, Operand);
 }
@@ -2286,14 +2414,6 @@ AKATOMICDEF uint16_t AK_Atomic_Compare_Exchange_U16_Relaxed(ak_atomic_u16* Objec
 	return (uint16_t)_InterlockedCompareExchange16((volatile short *)Object, (short)NewValue, (short)OldValue);
 }
 
-AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_U16_Weak_Relaxed(ak_atomic_u16* Object, uint16_t* OldValue, uint16_t NewValue) {
-	uint16_t Expected = *OldValue;
-	uint16_t Previous = (uint16_t)_InterlockedCompareExchange16((volatile short*)Object, (short)NewValue, (short)Expected);
-	int8_t Result = Previous == Expected;
-	if (!Result) *OldValue = Previous;
-	return Result;
-}
-
 AKATOMICDEF uint16_t AK_Atomic_Fetch_Add_U16_Relaxed(ak_atomic_u16* Object, int16_t Operand) {
 	return (uint16_t)_InterlockedExchange16((volatile short *)Object, Operand);
 }
@@ -2321,14 +2441,6 @@ AKATOMICDEF uint32_t AK_Atomic_Exchange_U32_Relaxed(ak_atomic_u32* Object, uint3
 
 AKATOMICDEF uint32_t AK_Atomic_Compare_Exchange_U32_Relaxed(ak_atomic_u32* Object, uint32_t OldValue, uint32_t NewValue) {
 	return (uint32_t)_InterlockedCompareExchange((volatile long *)Object, (long)NewValue, (long)OldValue);
-}
-
-AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_U32_Weak_Relaxed(ak_atomic_u32* Object, uint32_t* OldValue, uint32_t NewValue) {
-	uint32_t Expected = *OldValue;
-	uint32_t Previous = (uint32_t)_InterlockedCompareExchange((volatile long*)Object, (long)NewValue, (long)Expected);
-	int8_t Result = Previous == Expected;
-	if (!Result) *OldValue = Previous;
-	return Result;
 }
 
 AKATOMICDEF uint32_t AK_Atomic_Fetch_Add_U32_Relaxed(ak_atomic_u32* Object, int32_t Operand) {
@@ -2386,14 +2498,6 @@ AKATOMICDEF uint64_t AK_Atomic_Compare_Exchange_U64_Relaxed(ak_atomic_u64* Objec
 	return (uint64_t)_InterlockedCompareExchange64((volatile __int64*)Object, (__int64)NewValue, (__int64)OldValue);
 }
 
-AKATOMICDEF int8_t AK_Atomic_Compare_Exchange_U64_Weak_Relaxed(ak_atomic_u64* Object, uint64_t* OldValue, uint64_t NewValue) {
-    uint64_t Old = *OldValue;
-    uint64_t Previous = (uint64_t)_InterlockedCompareExchange64((volatile __int64*)Object, (__int64)NewValue, (__int64)Old);
-    int8_t Result = (Previous == Old);
-    if(!Result) *OldValue = Previous;
-    return Result;
-}
-
 AKATOMICDEF uint64_t AK_Atomic_Fetch_Add_U64_Relaxed(ak_atomic_u64* Object, int64_t Operand) {
 #if (AK_ATOMIC_PTR_SIZE == 8)
     return (uint64_t)_InterlockedExchangeAdd64((volatile __int64*)Object, (__int64)Operand);
@@ -2423,6 +2527,316 @@ AKATOMICDEF uint64_t AK_Atomic_Decrement_U64_Relaxed(ak_atomic_u64* Object) {
 #endif
 }
 
+#elif defined(AK_ATOMIC_COMPILER_GCC) && defined(AK_ATOMIC_CPU_AARCH64)
+AK_ATOMIC__COMPILE_TIME_ASSERT(AK_ATOMIC_PTR_SIZE == 8);
+
+AKATOMICDEF uint8_t AK_Atomic_Load_U8_Relaxed(const ak_atomic_u8* Object) {
+	return Object->Nonatomic;
+}
+
+AKATOMICDEF void AK_Atomic_Store_U8_Relaxed(ak_atomic_u8* Object, uint8_t Value) {
+	Object->Nonatomic = Value;
+}
+
+AKATOMICDEF uint8_t AK_Atomic_Exchange_U8_Relaxed(ak_atomic_u8* Object, uint8_t Value) {
+	uint32_t Status;
+	uint8_t Previous;
+
+	__asm__ volatile(
+		"1: ldxrb %w0, %2\n"
+		"	stxrb %w1, %w3, %2\n"
+		"	cbnz %w1, 1b\n"
+		"2:"
+		: "=&r" (Previous), "=&r" (Status), "+Q"(Object->Nonatomic)
+		: "r" (Value)
+		: "cc");
+	return Previous;
+}
+
+AKATOMICDEF uint8_t AK_Atomic_Compare_Exchange_U8_Relaxed(ak_atomic_u8* Object, uint8_t OldValue, uint8_t NewValue) {
+	uint32_t Status;
+	uint8_t Previous;
+
+	__asm__ volatile(
+		"1: ldxrb %w0, %2\n"
+		"	cmp %w0, %w3\n"
+		"	b.ne 2f\n"
+		"	stxrb %w1, %w4, %2\n"
+		"	cbnz %w1, 1b\n"
+		"2:"
+		: "=&r" (Previous), "=&r" (Status), "+Q" (Object->Nonatomic)
+		: "Ir" (OldValue), "r" (NewValue)
+		: "cc");
+
+	return Previous;
+}
+
+AKATOMICDEF uint8_t AK_Atomic_Fetch_Add_U8_Relaxed(ak_atomic_u8* Object, int8_t Operand) {
+	uint32_t Status;
+	uint8_t Previous, TempAddRegister;
+
+	__asm__ volatile(
+		"1: ldxrb %w0, %2\n"
+		"	add %w3, %w0, %w4\n"
+		"	stxrb %w1, %w3, %2\n"
+		"	cbnz %w1, 1b\n"
+		"2:"
+		: "=&r" (Previous), "=&r" (Status), "+Q" (Object->Nonatomic), "=&r" (TempAddRegister)
+		: "Ir" (Operand)
+		: "cc");
+
+	return Previous;
+}
+
+AKATOMICDEF uint8_t AK_Atomic_Increment_U8_Relaxed(ak_atomic_u8* Object) {
+	return AK_Atomic_Fetch_Add_U8_Relaxed(Object, 1) + 1;
+}
+
+AKATOMICDEF uint8_t AK_Atomic_Decrement_U8_Relaxed(ak_atomic_u8* Object) {
+	return AK_Atomic_Fetch_Add_U8_Relaxed(Object, -1) - 1 ;
+}
+
+AKATOMICDEF uint16_t AK_Atomic_Load_U16_Relaxed(const ak_atomic_u16* Object) {
+	return Object->Nonatomic;
+}
+
+AKATOMICDEF void AK_Atomic_Store_U16_Relaxed(ak_atomic_u16* Object, uint16_t Value) {
+	Object->Nonatomic = Value;
+}
+
+AKATOMICDEF uint16_t AK_Atomic_Exchange_U16_Relaxed(ak_atomic_u16* Object, uint16_t Value) {
+	uint32_t Status;
+	uint16_t Previous;
+
+	__asm__ volatile(
+		"1: ldxrh %w0, %2\n"
+		"	stxrh %w1, %w3, %2\n"
+		"	cbnz %w1, 1b\n"
+		"2:"
+		: "=&r" (Previous), "=&r" (Status), "+Q"(Object->Nonatomic)
+		: "r" (Value)
+		: "cc");
+	return Previous;
+}
+
+AKATOMICDEF uint16_t AK_Atomic_Compare_Exchange_U16_Relaxed(ak_atomic_u16* Object, uint16_t OldValue, uint16_t NewValue) {
+	uint32_t Status;
+	uint16_t Previous;
+
+	__asm__ volatile(
+		"1: ldxrh %w0, %2\n"
+		"	cmp %w0, %w3\n"
+		"	b.ne 2f\n"
+		"	stxrh %w1, %w4, %2\n"
+		"	cbnz %w1, 1b\n"
+		"2:"
+		: "=&r" (Previous), "=&r" (Status), "+Q" (Object->Nonatomic)
+		: "Ir" (OldValue), "r" (NewValue)
+		: "cc");
+
+	return Previous;
+}
+
+AKATOMICDEF uint16_t AK_Atomic_Fetch_Add_U16_Relaxed(ak_atomic_u16* Object, int16_t Operand) {
+	uint32_t Status;
+	uint16_t Previous, TempAddRegister;
+
+	__asm__ volatile(
+		"1: ldxrh %w0, %2\n"
+		"	add %w3, %w0, %w4\n"
+		"	stxrh %w1, %w3, %2\n"
+		"	cbnz %w1, 1b\n"
+		"2:"
+		: "=&r" (Previous), "=&r" (Status), "+Q" (Object->Nonatomic), "=&r" (TempAddRegister)
+		: "Ir" (Operand)
+		: "cc");
+
+	return Previous;
+}
+
+AKATOMICDEF uint16_t AK_Atomic_Increment_U16_Relaxed(ak_atomic_u16* Object) {
+	return AK_Atomic_Fetch_Add_U16_Relaxed(Object, 1) + 1;
+}
+
+AKATOMICDEF uint16_t AK_Atomic_Decrement_U16_Relaxed(ak_atomic_u16* Object) {
+	return AK_Atomic_Fetch_Add_U16_Relaxed(Object, -1) - 1;
+}
+
+AKATOMICDEF uint32_t AK_Atomic_Load_U32_Relaxed(const ak_atomic_u32* Object) {
+	return Object->Nonatomic;
+}
+
+AKATOMICDEF void AK_Atomic_Store_U32_Relaxed(ak_atomic_u32* Object, uint32_t Value) {
+	Object->Nonatomic = Value;
+}
+
+AKATOMICDEF uint32_t AK_Atomic_Exchange_U32_Relaxed(ak_atomic_u32* Object, uint32_t Value) {
+	uint32_t Status;
+	uint32_t Previous;
+
+	__asm__ volatile(
+		"1: ldxr %w0, %2\n"
+		"	stxr %w1, %w3, %2\n"
+		"	cbnz %w1, 1b\n"
+		"2:"
+		: "=&r" (Previous), "=&r" (Status), "+Q"(Object->Nonatomic)
+		: "r" (Value)
+		: "cc");
+	return Previous;
+}
+
+AKATOMICDEF uint32_t AK_Atomic_Compare_Exchange_U32_Relaxed(ak_atomic_u32* Object, uint32_t OldValue, uint32_t NewValue) {
+	uint32_t Status;
+	uint32_t Previous;
+
+	__asm__ volatile(
+		"1: ldxr %w0, %2\n"
+		"	cmp %w0, %w3\n"
+		"	b.ne 2f\n"
+		"	stxr %w1, %w4, %2\n"
+		"	cbnz %w1, 1b\n"
+		"2:"
+		: "=&r" (Previous), "=&r" (Status), "+Q" (Object->Nonatomic)
+		: "Ir" (OldValue), "r" (NewValue)
+		: "cc");
+
+	return Previous;
+}
+
+AKATOMICDEF uint32_t AK_Atomic_Fetch_Add_U32_Relaxed(ak_atomic_u32* Object, int32_t Operand) {
+	uint32_t Status;
+	uint32_t Previous, TempAddRegister;
+
+	__asm__ volatile(
+		"1: ldxr %w0, %2\n"
+		"	add %w3, %w0, %w4\n"
+		"	stxr %w1, %w3, %2\n"
+		"	cbnz %w1, 1b\n"
+		"2:"
+		: "=&r" (Previous), "=&r" (Status), "+Q" (Object->Nonatomic), "=&r" (TempAddRegister)
+		: "Ir" (Operand)
+		: "cc");
+
+	return Previous;
+}
+
+AKATOMICDEF uint32_t AK_Atomic_Increment_U32_Relaxed(ak_atomic_u32* Object) {
+	return AK_Atomic_Fetch_Add_U32_Relaxed(Object, 1) + 1;
+}
+
+AKATOMICDEF uint32_t AK_Atomic_Decrement_U32_Relaxed(ak_atomic_u32* Object) {
+	return AK_Atomic_Fetch_Add_U32_Relaxed(Object, -1) - 1;
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Load_U64_Relaxed(const ak_atomic_u64* Object) {
+	return Object->Nonatomic;
+}
+
+AKATOMICDEF void AK_Atomic_Store_U64_Relaxed(ak_atomic_u64* Object, uint64_t Value) {
+	Object->Nonatomic = Value;
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Exchange_U64_Relaxed(ak_atomic_u64* Object, uint64_t Value) {
+	uint32_t Status;
+	uint64_t Previous;
+
+	__asm__ volatile(
+		"1: ldxr %0, %2\n"
+		"	stxr %w1, %3, %2\n"
+		"	cbnz %w1, 1b\n"
+		"2:"
+		: "=&r" (Previous), "=&r" (Status), "+Q"(Object->Nonatomic)
+		: "r" (Value)
+		: "cc");
+	return Previous;
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Compare_Exchange_U64_Relaxed(ak_atomic_u64* Object, uint64_t OldValue, uint64_t NewValue) {
+	uint32_t Status;
+	uint64_t Previous;
+
+	__asm__ volatile(
+		"1: ldxr %0, %2\n"
+		"	cmp %0, %3\n"
+		"	b.ne 2f\n"
+		"	stxr %w1, %4, %2\n"
+		"	cbnz %w1, 1b\n"
+		"2:"
+		: "=&r" (Previous), "=&r" (Status), "+Q" (Object->Nonatomic)
+		: "Ir" (OldValue), "r" (NewValue)
+		: "cc");
+
+	return Previous;
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Fetch_Add_U64_Relaxed(ak_atomic_u64* Object, int64_t Operand) {
+	uint32_t Status;
+	uint64_t Previous, TempAddRegister;
+
+	__asm__ volatile(
+		"1: ldxr %0, %2\n"
+		"	add %3, %0, %4\n"
+		"	stxr %w1, %3, %2\n"
+		"	cbnz %w1, 1b\n"
+		"2:"
+		: "=&r" (Previous), "=&r" (Status), "+Q" (Object->Nonatomic), "=&r" (TempAddRegister)
+		: "Ir" (Operand)
+		: "cc");
+
+	return Previous;
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Increment_U64_Relaxed(ak_atomic_u64* Object) {
+	return AK_Atomic_Fetch_Add_U64_Relaxed(Object, 1) + 1;
+}
+
+AKATOMICDEF uint64_t AK_Atomic_Decrement_U64_Relaxed(ak_atomic_u64* Object) {
+	return AK_Atomic_Fetch_Add_U64_Relaxed(Object, -1) - 1;
+}
+
+#elif defined(AK_ATOMIC_COMPILER_GCC) && defined(AK_ATOMIC_CPU_ARM)
+
+/*Shared GCC ARM functions*/
+AKATOMICDEF uint8_t AK_Atomic_Load_U8_Relaxed(const ak_atomic_u8* Object) {
+	return Object->Nonatomic;
+}
+
+AKATOMICDEF void AK_Atomic_Store_U8_Relaxed(ak_atomic_u8* Object, uint8_t Value) {
+	Object->Nonatomic = Value;
+}
+
+AKATOMICDEF uint8_t AK_Atomic_Exchange_U8_Relaxed(ak_atomic_u8* Object, uint8_t Value) {
+	uint32_t Status;
+	uint8_t Previous;
+
+	__asm__ volatile(
+		"1: ldrexb %0, [%3]\n"
+		"	strexb %1, %4, [%3]\n"
+		"	cmp	   %1, #0\n"
+		"	bne    1b\n"
+        "2:"
+        : "=&r" (Previous), "=&r" (Status), "+Q"(Object->Nonatomic)
+        : "r"(Object), "r"(Value)
+        : "cc");
+	return Previous;
+}
+
+AKATOMICDEF uint16_t AK_Atomic_Load_U16_Relaxed(const ak_atomic_u16* Object) {
+	return Object->Nonatomic;
+}
+
+AKATOMICDEF void AK_Atomic_Store_U16_Relaxed(ak_atomic_u16* Object, uint16_t Value) {
+	Object->Nonatomic = Value;
+}
+
+AKATOMICDEF uint32_t AK_Atomic_Load_U32_Relaxed(const ak_atomic_u32* Object) {
+	return Object->Nonatomic;
+}
+
+AKATOMICDEF void AK_Atomic_Store_U32_Relaxed(ak_atomic_u32* Object, uint32_t Value) {
+	Object->Nonatomic = Value;
+}
+
 #else
 #error "Not Implemented!"
 #endif
@@ -2444,7 +2858,8 @@ AKATOMICDEF ak_thread* AK_Thread_Create(ak_thread_callback_func* Callback, void*
 	Thread->Base.Callback = Callback;
 	Thread->Base.UserData = UserData;
 	Thread->Handle = CreateThread(NULL, 0, AK_Win32_Thread_Callback, Thread, 0, &Thread->ID);
- 	if (Thread->Handle == NULL) {
+ 	AK_ATOMIC_ASSERT(Thread->Handle != NULL);
+	if (Thread->Handle == NULL) {
 		AK_ATOMIC_FREE(Thread);
 		return NULL;
 	}
@@ -2478,7 +2893,7 @@ AKATOMICDEF void AK_Thread_Wait(ak_thread* Thread) {
 AKATOMICDEF uint64_t AK_Thread_Get_ID(ak_thread* Thread) {
 	uint64_t Result = 0;
 	ak_win32_thread* Win32Thread = (ak_win32_thread *)Thread;
-	AK_ATOMIC_ASSERT(Thread);
+	AK_ATOMIC_ASSERT(Thread && Thread->Handle);
 	if (Win32Thread) {
 		Result = Win32Thread->ID;
 	}
@@ -2495,7 +2910,6 @@ AKATOMICDEF uint32_t AK_Get_Processor_Thread_Count(void) {
 	AK_ATOMIC_MEMSET(&SystemInfo, 0, sizeof(SYSTEM_INFO));
 	GetSystemInfo(&SystemInfo);
 	return SystemInfo.dwNumberOfProcessors;
-
 }
 
 /*Win32 Mutexes*/
@@ -2622,6 +3036,191 @@ AKATOMICDEF uint64_t AK_Query_Performance_Frequency(void) {
 	QueryPerformanceFrequency(&Result);
 	return (uint64_t)Result.QuadPart;
 }
+
+#elif defined(AK_ATOMIC_OS_POSIX) /*Posix*/
+
+#include <unistd.h>
+
+/*Posix Threads*/
+static void* AK_Thread__Internal_Proc(void* Parameter) {
+	ak_thread* Thread = (ak_thread*)Parameter;
+	return (void*)(size_t)Thread->Callback(Thread, Thread->UserData);
+}
+
+AKATOMICDEF ak_thread* AK_Thread_Create(ak_thread_callback_func* Callback, void* UserData) {
+	ak_posix_thread* Thread = (ak_posix_thread*)AK_ATOMIC_MALLOC(sizeof(ak_posix_thread));
+	AK_ATOMIC_ASSERT(Thread);
+	if(!Thread) return NULL;
+
+	Thread->Base.Callback = Callback;
+	Thread->Base.UserData = UserData;
+	int ErrorCode = pthread_create(&Thread->Thread, NULL, AK_Thread__Internal_Proc, Thread);
+	AK_ATOMIC_ASSERT(ErrorCode == 0);
+	if(ErrorCode != 0) {
+		AK_ATOMIC_FREE(Thread);
+		return NULL;
+	}
+
+	return &Thread->Base;
+}
+
+AKATOMICDEF void AK_Thread_Delete(ak_thread* Thread) {
+	ak_posix_thread* PosixThread = (ak_posix_thread*)Thread;
+	AK_ATOMIC_ASSERT(PosixThread && (PosixThread->Thread != 0));
+
+	if(PosixThread && (PosixThread->Thread != 0)) {
+		AK_Thread_Wait(Thread);
+		AK_ATOMIC_FREE(PosixThread);
+	}
+}
+
+AKATOMICDEF void AK_Thread_Wait(ak_thread* Thread) {
+	ak_posix_thread* PosixThread = (ak_posix_thread*)Thread;
+	AK_ATOMIC_ASSERT(PosixThread && (PosixThread->Thread != 0));
+
+	if(PosixThread && (PosixThread->Thread != 0)) {
+		pthread_join(PosixThread->Thread, NULL);
+	}
+}
+
+AKATOMICDEF uint64_t AK_Thread_Get_ID(ak_thread* Thread) {
+	uint64_t Result = 0;
+	ak_posix_thread* PosixThread = (ak_posix_thread *)Thread;
+	AK_ATOMIC_ASSERT(PosixThread && (PosixThread->Thread != 0));
+	if (PosixThread && (PosixThread->Thread != 0)) {
+		Result = (uint64_t)PosixThread->Thread;
+	}
+	return Result;
+}
+
+AKATOMICDEF uint64_t AK_Thread_Get_Current_ID(void) {
+	uint64_t Result = (uint64_t)pthread_self();
+	return Result;
+}
+
+AKATOMICDEF uint32_t AK_Get_Processor_Thread_Count(void) {
+    uint32_t Result = (uint32_t)sysconf(_SC_NPROCESSORS_ONLN);
+	return Result;
+}
+
+/*Posix Mutexes*/
+AKATOMICDEF int8_t AK_Mutex_Create(ak_mutex* Mutex) {
+	int8_t ErrorCode = pthread_mutex_init(&Mutex->Mutex, NULL);
+	return ErrorCode == 0;
+}
+
+AKATOMICDEF void AK_Mutex_Delete(ak_mutex* Mutex) {
+	pthread_mutex_destroy(&Mutex->Mutex);
+}
+
+AKATOMICDEF void AK_Mutex_Lock(ak_mutex* Mutex) {
+	pthread_mutex_lock(&Mutex->Mutex);
+}
+
+AKATOMICDEF void AK_Mutex_Unlock(ak_mutex* Mutex) {
+	pthread_mutex_lock(&Mutex->Mutex);
+}
+
+AKATOMICDEF int8_t AK_Mutex_Try_Lock(ak_mutex* Mutex) {
+	return pthread_mutex_trylock(&Mutex->Mutex);
+}
+
+#ifdef AK_ATOMIC_OS_OSX 
+/*OSX Semaphores*/
+AKATOMICDEF int8_t AK_Semaphore_Create(ak_semaphore* Semaphore, int32_t InitialCount) {
+	kern_return_t ErrorCode = semaphore_create(mach_task_self(), &Semaphore->Semaphore, SYNC_POLICY_FIFO, InitialCount);
+	AK_ATOMIC_ASSERT(ErrorCode == KERN_SUCCESS);
+	return ErrorCode == KERN_SUCCESS;
+}
+
+AKATOMICDEF void AK_Semaphore_Delete(ak_semaphore* Semaphore) {
+	semaphore_destroy(mach_task_self(), Semaphore->Semaphore);
+}
+
+AKATOMICDEF void AK_Semaphore_Increment(ak_semaphore* Semaphore) {
+	semaphore_signal(Semaphore->Semaphore);
+}
+
+AKATOMICDEF void AK_Semaphore_Decrement(ak_semaphore* Semaphore) {
+	semaphore_wait(Semaphore->Semaphore);
+}
+
+AKATOMICDEF void AK_Semaphore_Add(ak_semaphore* Semaphore, int32_t Addend) {
+	while(Addend > 0) {
+		semaphore_signal(Semaphore->Semaphore);
+		--Addend;
+	}
+}
+
+/*Posix Condition Variables*/
+AKATOMICDEF int8_t AK_Condition_Variable_Create(ak_condition_variable* ConditionVariable) {
+	int ErrorCode = pthread_cond_init(&ConditionVariable->ConditionVariable, NULL);
+	AK_ATOMIC_ASSERT(ErrorCode == 0);
+	return ErrorCode == 0;
+}
+
+AKATOMICDEF void AK_Condition_Variable_Delete(ak_condition_variable* ConditionVariable) {
+	pthread_cond_destroy(&ConditionVariable->ConditionVariable);
+}
+
+AKATOMICDEF void AK_Condition_Variable_Wait(ak_condition_variable* ConditionVariable, ak_mutex* Mutex) {
+	pthread_cond_wait(&ConditionVariable->ConditionVariable, &Mutex->Mutex);
+}
+
+AKATOMICDEF void AK_Condition_Variable_Wake_One(ak_condition_variable* ConditionVariable) {
+	pthread_cond_signal(&ConditionVariable->ConditionVariable);
+}
+
+AKATOMICDEF void AK_Condition_Variable_Wake_All(ak_condition_variable* ConditionVariable) {
+	pthread_cond_broadcast(&ConditionVariable->ConditionVariable);
+}
+
+/*Posix Thread Local Storage*/
+AKATOMICDEF int8_t AK_TLS_Create(ak_tls* TLS) {
+	int ErrorCode = pthread_key_create(&TLS->Key, NULL) == 0;
+	AK_ATOMIC_ASSERT(ErrorCode == 0);
+	return ErrorCode == 0;
+} 
+
+AKATOMICDEF void AK_TLS_Delete(ak_tls* TLS) {
+	pthread_key_delete(TLS->Key);
+}
+
+AKATOMICDEF void* AK_TLS_Get(ak_tls* TLS) {
+	return pthread_getspecific(TLS->Key);
+}
+
+AKATOMICDEF void AK_TLS_Set(ak_tls* TLS, void* Data) {
+	pthread_setspecific(TLS->Key, Data);
+}
+
+/*Posix High resolution performance counters & timers*/
+AKATOMICDEF void AK_Sleep(uint32_t Milliseconds) {
+    struct timespec Time;
+    Time.tv_sec = Milliseconds / 1000;
+    Time.tv_nsec = (Milliseconds % 1000) * 1000000;
+    nanosleep(&Time, NULL);
+}
+
+#define AK__NS_PER_SECOND 1000000000
+AKATOMICDEF uint64_t AK_Query_Performance_Counter() {
+    struct timespec Now;
+    clock_gettime(CLOCK_MONOTONIC_RAW, &Now);
+
+    uint64_t Result = Now.tv_sec;
+    Result *= AK__NS_PER_SECOND;
+    Result += Now.tv_nsec;
+
+    return Result;
+}
+
+AKATOMICDEF uint64_t AK_Query_Performance_Frequency() {
+    return AK__NS_PER_SECOND;
+}
+
+#else
+#error "Not Implemented!"
+#endif
 
 #else
 #error "Not Implemented!"

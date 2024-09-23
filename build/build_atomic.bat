@@ -126,10 +126,10 @@ REM - Choose between release and debug builds
 if "%debug%"=="1" set compile_flags=%compile_debug_flags%
 if "%release%"=="1" set compile_flags=%compile_release_flags%
 
+REM - Get all the configuration tests based on compiler and platform
 set compile_tests=
 set compile_output=
 
-REM - Get all the configuration tests based on compiler and platform
 if "%msvc%"=="1" (
 	set compile_tests[0]=/Tc %test_path%\ak_atomic_compile_test.c
 	set compile_output[0]=ak_atomic_ansii_compile_test.exe

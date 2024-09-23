@@ -1,4 +1,6 @@
 #define AK_ATOMIC_EXCLUDE_STDINT
+#define _INT8_T
+
 typedef unsigned char uint8_t;
 typedef unsigned short uint16_t;
 typedef unsigned int uint32_t;
@@ -36,12 +38,24 @@ void Memory_Set(void* Dst, int Value, uint32_t Size);
 
 #include <ak_atomic.h>
 
+#ifndef AK_ATOMIC_OS_WIN32
+#include <stdlib.h>
+#endif
+
 void* Allocate_Memory(uint32_t Size) {
+#ifdef AK_ATOMIC_OS_WIN32
 	return HeapAlloc(GetProcessHeap(), 0, Size);
+#else
+	return malloc(Size);
+#endif
 }
 
 void Free_Memory(void* Memory) {
-	HeapFree(GetProcessHeap(), 0, Memory);
+#ifdef AK_ATOMIC_OS_WIN32
+	return HeapFree(GetProcessHeap(), 0, Memory);
+#else
+	return free(Memory);
+#endif
 }
 
 void Memory_Set(void* Dst, int Value, uint32_t Size) {

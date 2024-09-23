@@ -1,3 +1,4 @@
 *.10x
 /bin
 /.vscode
+*.DS_Store
