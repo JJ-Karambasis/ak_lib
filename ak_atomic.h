@@ -3152,6 +3152,10 @@ AKATOMICDEF void AK_Semaphore_Add(ak_semaphore* Semaphore, int32_t Addend) {
 	}
 }
 
+#else
+#error "Not Implemented!"
+#endif
+
 /*Posix Condition Variables*/
 AKATOMICDEF int8_t AK_Condition_Variable_Create(ak_condition_variable* ConditionVariable) {
 	int ErrorCode = pthread_cond_init(&ConditionVariable->ConditionVariable, NULL);
@@ -3217,10 +3221,6 @@ AKATOMICDEF uint64_t AK_Query_Performance_Counter() {
 AKATOMICDEF uint64_t AK_Query_Performance_Frequency() {
     return AK__NS_PER_SECOND;
 }
-
-#else
-#error "Not Implemented!"
-#endif
 
 #else
 #error "Not Implemented!"
