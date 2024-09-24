@@ -489,9 +489,9 @@ AKATOMICDEF uint64_t AK_Query_Performance_Frequency(void);
 #define AK_ATOMIC_FREE(memory) free(memory)
 #endif
 
-#if !defined(AK_ATOMIC_MEMSET)
+#if !defined(AK_ATOMIC_MEMORY_CLEAR)
 #include <string.h>
-#define AK_ATOMIC_MEMSET(dst, value, size) memset(dst, value, size)
+#define AK_ATOMIC_MEMORY_CLEAR(dst, size) memset(dst, 0, size)
 #endif
 
 #if !defined(AK_ATOMIC_ASSERT)
@@ -2893,7 +2893,7 @@ AKATOMICDEF void AK_Thread_Wait(ak_thread* Thread) {
 AKATOMICDEF uint64_t AK_Thread_Get_ID(ak_thread* Thread) {
 	uint64_t Result = 0;
 	ak_win32_thread* Win32Thread = (ak_win32_thread *)Thread;
-	AK_ATOMIC_ASSERT(Thread && Thread->Handle);
+	AK_ATOMIC_ASSERT(Thread && Win32Thread->Handle);
 	if (Win32Thread) {
 		Result = Win32Thread->ID;
 	}
@@ -2907,7 +2907,7 @@ AKATOMICDEF uint64_t AK_Thread_Get_Current_ID(void) {
 
 AKATOMICDEF uint32_t AK_Get_Processor_Thread_Count(void) {
 	SYSTEM_INFO SystemInfo;
-	AK_ATOMIC_MEMSET(&SystemInfo, 0, sizeof(SYSTEM_INFO));
+	AK_ATOMIC_MEMORY_CLEAR(&SystemInfo, sizeof(SYSTEM_INFO));
 	GetSystemInfo(&SystemInfo);
 	return SystemInfo.dwNumberOfProcessors;
 }

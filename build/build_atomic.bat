@@ -66,24 +66,25 @@ if "%release%"=="1" set bin_path=%bin_path%\release
 if not exist %bin_path% mkdir %bin_path%
 
 REM - MSVC flags
-set msvc_warnings=/WX /Wall
+set msvc_warnings=/WX /Wall /wd4514 /wd4710 /wd4616 /wd4619
 set msvc_flags=/nologo /FC /Z7 -I%base_path% %msvc_warnings%
 
 set msvc_debug_flags=/Od %msvc_flags%
-set msvc_release_flags=/O2 %msvc_flags%
+set msvc_release_flags=/O2 /Oi- %msvc_flags%
 set msvc_link=/link /incremental:no /nodefaultlib kernel32.lib
 set msvc_out=/out:
 set msvc_compile=call cl
 
+
 REM - Clang flags
 set clang_warnings=-Werror -Wall
-set clang_flags=-g -gcodeview -fdiagnostics-absolute-paths -I%base_path% %clang_warnings%
+set clang_flags=-g -gcodeview -fdiagnostics-absolute-paths -fno-lto -fno-builtin -I%base_path% %clang_warnings%
 
 if "%clang%"=="1" (
 	if "%env32%"=="1" set clang_flags=-m32 %clang_flags%
 )
 
-set clang_debug_flags=-O0 %clang_flags%
+set clang_debug_flags=-O0 -DAK_ATOMIC_DEBUG_BUILD %clang_flags%
 set clang_release_flags=-O2 %clang_flags%
 set clang_link=-Xlinker -nodefaultlib -lkernel32.lib
 set clang_out=-o
@@ -99,7 +100,7 @@ if "%intel%"=="1" (
 
 set intel_debug_flags=-Od %intel_flags%
 set intel_release_flags=-O2 %intel_flags%
-set intel_link=-link -incremental:no -nodefaultlib -nologo kernel32.lib
+set intel_link=-link -incremental:no -nodefaultlib -nologo kernel32.lib libirc.lib
 set intel_out=-out:
 set intel_compile=call icx
 
@@ -131,31 +132,41 @@ set compile_tests=
 set compile_output=
 
 if "%msvc%"=="1" (
-	set compile_tests[0]=/Tc %test_path%\ak_atomic_compile_test.c
-	set compile_output[0]=ak_atomic_ansii_compile_test.exe
+	set compile_tests[0]=/Tc %test_path%\ak_atomic_unit_test.c libcmt.lib
+	if %msvc_version% gtr 11 (
+		set compile_tests[0]=!compile_tests[0]! libvcruntime.lib libucrt.lib
+	)
+	
+	set compile_output[0]=ak_atomic_c_unit_test.exe
+
+	set compile_tests[1]=/Tc %test_path%\ak_atomic_compile_test.c
+	set compile_output[1]=ak_atomic_ansii_compile_test.exe
 
 	if %msvc_version% lss 14 (
-		set compile_tests[1]=-wd4514 %test_path%\ak_atomic_compile_test.cpp
-		set compile_output[1]=ak_atomic_cpp_compile_test.exe
+		set compile_tests[2]=%test_path%\ak_atomic_compile_test.cpp
+		set compile_output[2]=ak_atomic_cpp_compile_test.exe
 		goto build_step
 	)
 
-	set compile_tests[1]=/std:c++14 %test_path%\ak_atomic_compile_test.cpp
-	set compile_output[1]=ak_atomic_cpp14_compile_test.exe
+	set compile_tests[2]=/std:c++14 %test_path%\ak_atomic_unit_test.cpp libcmt.lib libvcruntime.lib libucrt.lib 
+	set compile_output[2]=ak_atomic_cpp_unit_test.exe
+
+	set compile_tests[3]=/std:c++14 %test_path%\ak_atomic_compile_test.cpp
+	set compile_output[3]=ak_atomic_cpp14_compile_test.exe
 
 	if %msvc_version% gtr 14 (
-		set compile_tests[2]=/std:c++17 %test_path%\ak_atomic_compile_test.cpp
-		set compile_output[2]=ak_atomic_cpp17_compile_test.exe
+		set compile_tests[4]=/std:c++17 %test_path%\ak_atomic_compile_test.cpp
+		set compile_output[4]=ak_atomic_cpp17_compile_test.exe
 
 		if %msvc_version% geq 2019 (
-			set compile_tests[3]=/std:c11 /Tc %test_path%\ak_atomic_compile_test.c
-			set compile_output[3]=ak_atomic_c11_compile_test.exe
+			set compile_tests[5]=/std:c11 /Tc %test_path%\ak_atomic_compile_test.c
+			set compile_output[5]=ak_atomic_c11_compile_test.exe
 
-			set compile_tests[4]=/std:c17 /Tc %test_path%\ak_atomic_compile_test.c
-			set compile_output[4]=ak_atomic_c17_compile_test.exe
+			set compile_tests[6]=/std:c17 /Tc %test_path%\ak_atomic_compile_test.c
+			set compile_output[6]=ak_atomic_c17_compile_test.exe
 
-			set compile_tests[5]=/std:c++20 %test_path%\ak_atomic_compile_test.cpp
-			set compile_output[5]=ak_atomic_cpp20_compile_test.exe
+			set compile_tests[7]=/std:c++20 %test_path%\ak_atomic_compile_test.cpp
+			set compile_output[7]=ak_atomic_cpp20_compile_test.exe
 		)
 	)
 )
@@ -184,6 +195,12 @@ if "%clang%"=="1" (
 
 	set compile_tests[7]=-std=c++20 %test_path%\ak_atomic_compile_test.cpp
 	set compile_output[7]=ak_atomic_cpp20_compile_test.exe
+
+	set compile_tests[8]=-llibcmt.lib -llibvcruntime.lib -llibucrt.lib -std=gnu89 %test_path%\ak_atomic_unit_test.c
+	set compile_output[8]=ak_atomic_c_unit_test.exe
+
+	set compile_tests[9]=-llibcmt.lib -llibvcruntime.lib -llibucrt.lib -std=c++14 %test_path%\ak_atomic_unit_test.cpp
+	set compile_output[9]=ak_atomic_cpp_unit_test.exe
 )
 
 if "%intel%"=="1" (
@@ -199,14 +216,20 @@ if "%intel%"=="1" (
 	set compile_tests[3]=-Qstd=c17 %test_path%\ak_atomic_compile_test.c
 	set compile_output[3]=ak_atomic_c17_compile_test.exe
 
-	set compile_tests[6]=-Qstd=c++14 %test_path%\ak_atomic_compile_test.cpp
-	set compile_output[6]=ak_atomic_cpp14_compile_test.exe
+	set compile_tests[4]=-Qstd=c++14 %test_path%\ak_atomic_compile_test.cpp
+	set compile_output[4]=ak_atomic_cpp14_compile_test.exe
 
-	set compile_tests[7]=-Qstd=c++17 %test_path%\ak_atomic_compile_test.cpp
-	set compile_output[7]=ak_atomic_cpp17_compile_test.exe
+	set compile_tests[5]=-Qstd=c++17 %test_path%\ak_atomic_compile_test.cpp
+	set compile_output[5]=ak_atomic_cpp17_compile_test.exe
 
-	set compile_tests[8]=-Qstd=c++20 %test_path%\ak_atomic_compile_test.cpp
-	set compile_output[8]=ak_atomic_cpp20_compile_test.exe
+	set compile_tests[6]=-Qstd=c++20 %test_path%\ak_atomic_compile_test.cpp
+	set compile_output[6]=ak_atomic_cpp20_compile_test.exe
+
+	set compile_tests[7]=-Qstd=c++14 %test_path%\ak_atomic_unit_test.cpp libcmt.lib libvcruntime.lib libucrt.lib
+	set compile_output[7]=ak_atomic_cpp_unit_test.exe
+
+	set compile_tests[8]=-Qstd=c89 %test_path%\ak_atomic_unit_test.c libcmt.lib libvcruntime.lib libucrt.lib
+	set compile_output[8]=ak_atomic_c_unit_test.exe
 )
 
 :build_step
