@@ -30,6 +30,8 @@ void Internal_Assert(void);
 
 #if defined(__clang__)
 #define crash() __builtin_trap()
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-function"
 #endif
 
 #ifdef _MSC_VER
@@ -46,12 +48,24 @@ void Internal_Assert(void) {
 	crash();
 }
 
+#if !defined(AK_ATOMIC_OS_WIN32)
+#include <stdlib.h>
+#endif
+
 void* Allocate_Memory(uint32_t Size) {
+#if defined(AK_ATOMIC_OS_WIN32)
 	return HeapAlloc(GetProcessHeap(), 0, Size);
+#else
+	return malloc(Size);
+#endif
 }
 
 void Free_Memory(void* Memory) {
+#if defined(AK_ATOMIC_OS_WIN32)
 	HeapFree(GetProcessHeap(), 0, Memory);
+#else
+	free(Memory);
+#endif
 }
 
 static void Memory_Clear(void* Dst, uint32_t Size) {

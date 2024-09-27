@@ -13,6 +13,10 @@ int mainCRTStartup(void) {
 #pragma warning(pop)
 #endif
 
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
+
 #ifndef AK_ATOMIC_IMPLEMENTATION
 #define AK_ATOMIC_IMPLEMENTATION
 #include <ak_atomic.h>
