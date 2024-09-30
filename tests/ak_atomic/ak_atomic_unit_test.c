@@ -421,6 +421,7 @@ static AK_THREAD_CALLBACK_DEFINE(TestStoreStoreU8) {
 	uint32_t i;
 	int FinishedProcessing;
 	storestore8_thread* Context = (storestore8_thread*)UserData;
+	(void)Thread;
 
 	for(;;) {
 		FinishedProcessing = true_t;
@@ -447,6 +448,7 @@ static AK_THREAD_CALLBACK_DEFINE(TestStoreStoreU8) {
 static AK_THREAD_CALLBACK_DEFINE(StoreStoreU8) {
 	uint32_t i;
 	storestore8_thread* Context = (storestore8_thread*)UserData;
+	(void)Thread;
 
 	for(i = 0; i < Context->Count; i++) {
 		storestore8_entry* Entry = Context->Entries + i;
@@ -516,6 +518,7 @@ static AK_THREAD_CALLBACK_DEFINE(TestStoreStoreU16) {
 	uint32_t i;
 	int FinishedProcessing;
 	storestore16_thread* Context = (storestore16_thread*)UserData;
+	(void)Thread;
 
 	for(;;) {
 		FinishedProcessing = true_t;
@@ -542,6 +545,7 @@ static AK_THREAD_CALLBACK_DEFINE(TestStoreStoreU16) {
 static AK_THREAD_CALLBACK_DEFINE(StoreStoreU16) {
 	uint32_t i;
 	storestore16_thread* Context = (storestore16_thread*)UserData;
+	(void)Thread;
 
 	for(i = 0; i < Context->Count; i++) {
 		storestore16_entry* Entry = Context->Entries + i;
@@ -611,6 +615,7 @@ static AK_THREAD_CALLBACK_DEFINE(TestStoreStoreU32) {
 	uint32_t i;
 	int FinishedProcessing;
 	storestore32_thread* Context = (storestore32_thread*)UserData;
+	(void)Thread;
 
 	for(;;) {
 		FinishedProcessing = true_t;
@@ -637,6 +642,7 @@ static AK_THREAD_CALLBACK_DEFINE(TestStoreStoreU32) {
 static AK_THREAD_CALLBACK_DEFINE(StoreStoreU32) {
 	uint32_t i;
 	storestore32_thread* Context = (storestore32_thread*)UserData;
+	(void)Thread;
 
 	for(i = 0; i < Context->Count; i++) {
 		storestore32_entry* Entry = Context->Entries + i;
@@ -706,6 +712,7 @@ static AK_THREAD_CALLBACK_DEFINE(TestStoreStoreU64) {
 	uint32_t i;
 	int FinishedProcessing;
 	storestore64_thread* Context = (storestore64_thread*)UserData;
+	(void)Thread;
 
 	for(;;) {
 		FinishedProcessing = true_t;
@@ -732,6 +739,7 @@ static AK_THREAD_CALLBACK_DEFINE(TestStoreStoreU64) {
 static AK_THREAD_CALLBACK_DEFINE(StoreStoreU64) {
 	uint32_t i;
 	storestore64_thread* Context = (storestore64_thread*)UserData;
+	(void)Thread;
 
 	for(i = 0; i < Context->Count; i++) {
 		storestore64_entry* Entry = Context->Entries + i;
@@ -800,6 +808,7 @@ typedef struct {
 static AK_THREAD_CALLBACK_DEFINE(StoreLoadU8_A) {
 	uint32_t i;
 	storeload8_thread* Context = (storeload8_thread*)UserData;
+	(void)Thread;
 
 	for(i = 0; i < Context->Count; i++) {
 		storeload8_entry* Entry = Context->Entries + i;
@@ -813,6 +822,7 @@ static AK_THREAD_CALLBACK_DEFINE(StoreLoadU8_A) {
 static AK_THREAD_CALLBACK_DEFINE(StoreLoadU8_B) {
 	uint32_t i;
 	storeload8_thread* Context = (storeload8_thread*)UserData;
+	(void)Thread;
 
 	for(i = 0; i < Context->Count; i++) {
 		storeload8_entry* Entry = Context->Entries + i;
@@ -881,6 +891,7 @@ typedef struct {
 static AK_THREAD_CALLBACK_DEFINE(StoreLoadU16_A) {
 	uint32_t i;
 	storeload16_thread* Context = (storeload16_thread*)UserData;
+	(void)Thread;
 
 	for(i = 0; i < Context->Count; i++) {
 		storeload16_entry* Entry = Context->Entries + i;
@@ -894,6 +905,7 @@ static AK_THREAD_CALLBACK_DEFINE(StoreLoadU16_A) {
 static AK_THREAD_CALLBACK_DEFINE(StoreLoadU16_B) {
 	uint32_t i;
 	storeload16_thread* Context = (storeload16_thread*)UserData;
+	(void)Thread;
 
 	for(i = 0; i < Context->Count; i++) {
 		storeload16_entry* Entry = Context->Entries + i;
@@ -962,6 +974,7 @@ typedef struct {
 static AK_THREAD_CALLBACK_DEFINE(StoreLoadU32_A) {
 	uint32_t i;
 	storeload32_thread* Context = (storeload32_thread*)UserData;
+	(void)Thread;
 
 	for(i = 0; i < Context->Count; i++) {
 		storeload32_entry* Entry = Context->Entries + i;
@@ -975,7 +988,7 @@ static AK_THREAD_CALLBACK_DEFINE(StoreLoadU32_A) {
 static AK_THREAD_CALLBACK_DEFINE(StoreLoadU32_B) {
 	uint32_t i;
 	storeload32_thread* Context = (storeload32_thread*)UserData;
-
+	(void)Thread;
 	for(i = 0; i < Context->Count; i++) {
 		storeload32_entry* Entry = Context->Entries + i;
 		AK_Atomic_Store_U32(&Entry->Y, 1, AK_ATOMIC_MEMORY_ORDER_SEQ_CST);
@@ -1043,6 +1056,7 @@ typedef struct {
 static AK_THREAD_CALLBACK_DEFINE(StoreLoadU64_A) {
 	uint32_t i;
 	storeload64_thread* Context = (storeload64_thread*)UserData;
+	(void)Thread;
 
 	for(i = 0; i < Context->Count; i++) {
 		storeload64_entry* Entry = Context->Entries + i;
@@ -1056,6 +1070,7 @@ static AK_THREAD_CALLBACK_DEFINE(StoreLoadU64_A) {
 static AK_THREAD_CALLBACK_DEFINE(StoreLoadU64_B) {
 	uint32_t i;
 	storeload64_thread* Context = (storeload64_thread*)UserData;
+	(void)Thread;
 
 	for(i = 0; i < Context->Count; i++) {
 		storeload64_entry* Entry = Context->Entries + i;
@@ -1133,7 +1148,7 @@ static AK_THREAD_CALLBACK_DEFINE(ExchangeU8) {
 	(void)Thread;
 
 	for(i = 1; i <= Context->ValuesPerThread; i++) {
-		uint8_t Index = i+ExThread->Base;
+		uint8_t Index = (uint8_t)(i+ExThread->Base);
 		uint8_t OldValue = AK_Atomic_Exchange_U8(&Context->SharedInt, Index, AK_ATOMIC_MEMORY_ORDER_RELAXED);
 		Context->Values[Index] = OldValue;
 	}
@@ -1148,8 +1163,8 @@ UTEST(Exchange, U8) {
 
 	Context.ThreadCount = (uint8_t)AK_Get_Processor_Thread_Count();
 	Context.Threads = (exchange8_thread*)Allocate_Memory(sizeof(exchange8_thread)*Context.ThreadCount);
-	Context.ValuesPerThread = 254/Context.ThreadCount; /*Truncating down is fine*/
-	uint32_t NumValues = (Context.ValuesPerThread*Context.ThreadCount)+1;
+	Context.ValuesPerThread = 254u/Context.ThreadCount; /*Truncating down is fine*/
+	uint8_t NumValues = (Context.ValuesPerThread*Context.ThreadCount)+1u;
 	Assert(NumValues <= 255);
 
 	Context.Values = (uint8_t*)Allocate_Memory(sizeof(uint8_t)*NumValues);
@@ -1157,7 +1172,7 @@ UTEST(Exchange, U8) {
 
 	for(i = 0; i < Context.ThreadCount; i++) {
 		exchange8_thread* Thread = Context.Threads + i;
-		Thread->Base = Context.ValuesPerThread*i;
+		Thread->Base = (uint8_t)(Context.ValuesPerThread*i);
 		Thread->Context = &Context;
 		Thread->Thread = AK_Thread_Create(ExchangeU8, Thread);
 	}
@@ -1171,7 +1186,7 @@ UTEST(Exchange, U8) {
 	qsort(Context.Values, NumValues, sizeof(uint8_t), Exchange_CompareU8);
 
 	for(i = 0; i < NumValues; i++) {
-		uint8_t ActualIndex = (NumValues-i)-1;
+		uint8_t ActualIndex = (NumValues-i)-1u;
 		ASSERT_TRUE(Context.Values[ActualIndex] == i);
 	}
 
@@ -1215,7 +1230,7 @@ static AK_THREAD_CALLBACK_DEFINE(ExchangeU16) {
 	(void)Thread;
 
 	for(i = 1; i <= Context->ValuesPerThread; i++) {
-		uint16_t Index = i+ExThread->Base;
+		uint16_t Index = (uint16_t)(i+ExThread->Base);
 		uint16_t OldValue = AK_Atomic_Exchange_U16(&Context->SharedInt, Index, AK_ATOMIC_MEMORY_ORDER_RELAXED);
 		Context->Values[Index] = OldValue;
 	}
@@ -1230,8 +1245,8 @@ UTEST(Exchange, U16) {
 
 	Context.ThreadCount = (uint16_t)AK_Get_Processor_Thread_Count();
 	Context.Threads = (exchange16_thread*)Allocate_Memory(sizeof(exchange16_thread)*Context.ThreadCount);
-	Context.ValuesPerThread = 65534/Context.ThreadCount; /*Truncating down is fine*/
-	uint32_t NumValues = (Context.ValuesPerThread*Context.ThreadCount)+1;
+	Context.ValuesPerThread = 65534u/Context.ThreadCount; /*Truncating down is fine*/
+	uint16_t NumValues = (Context.ValuesPerThread*Context.ThreadCount)+1u;
 	Assert(NumValues <= 65535);
 
 	Context.Values = (uint16_t*)Allocate_Memory(sizeof(uint16_t)*NumValues);
@@ -1239,7 +1254,7 @@ UTEST(Exchange, U16) {
 
 	for(i = 0; i < Context.ThreadCount; i++) {
 		exchange16_thread* Thread = Context.Threads + i;
-		Thread->Base = Context.ValuesPerThread*i;
+		Thread->Base = (uint16_t)(Context.ValuesPerThread*i);
 		Thread->Context = &Context;
 		Thread->Thread = AK_Thread_Create(ExchangeU16, Thread);
 	}
@@ -1253,7 +1268,7 @@ UTEST(Exchange, U16) {
 	qsort(Context.Values, NumValues, sizeof(uint16_t), Exchange_CompareU16);
 
 	for(i = 0; i < NumValues; i++) {
-		uint16_t ActualIndex = (NumValues-i)-1;
+		uint16_t ActualIndex = (NumValues-i)-1u;
 		ASSERT_TRUE(Context.Values[ActualIndex] == i);
 	}
 
@@ -1438,6 +1453,7 @@ typedef struct {
 
 static AK_THREAD_CALLBACK_DEFINE(CompareExchangeU8) {
 	compare_exchange8_context* Context = (compare_exchange8_context*)UserData;
+	(void)Thread;
 
 	uint32_t Count = 0;
     while(Count < Context->Iterations) {
@@ -1453,6 +1469,7 @@ static AK_THREAD_CALLBACK_DEFINE(CompareExchangeU8) {
 UTEST(CompareExchange, U8) {
 	uint32_t i;
 	compare_exchange8_context Context;
+
 	Memory_Clear(&Context, sizeof(compare_exchange8_context));
 
 	Context.Iterations = 1000;
@@ -1484,6 +1501,7 @@ typedef struct {
 
 static AK_THREAD_CALLBACK_DEFINE(CompareExchangeU16) {
 	compare_exchange16_context* Context = (compare_exchange16_context*)UserData;
+	(void)Thread;
 
 	uint32_t Count = 0;
     while(Count < Context->Iterations) {
@@ -1530,6 +1548,7 @@ typedef struct {
 
 static AK_THREAD_CALLBACK_DEFINE(CompareExchangeU32) {
 	compare_exchange32_context* Context = (compare_exchange32_context*)UserData;
+	(void)Thread;
 
 	uint32_t Count = 0;
     while(Count < Context->Iterations) {
@@ -1576,6 +1595,7 @@ typedef struct {
 
 static AK_THREAD_CALLBACK_DEFINE(CompareExchangeU64) {
 	compare_exchange64_context* Context = (compare_exchange64_context*)UserData;
+	(void)Thread;
 
 	uint32_t Count = 0;
     while(Count < Context->Iterations) {
@@ -1757,6 +1777,8 @@ typedef struct {
 
 static AK_THREAD_CALLBACK_DEFINE(IncrementU8) {
 	increment8_data* Data = (increment8_data*)UserData;
+	(void)Thread;
+
 	uint8_t i;
 	for(i = 0; i < Data->Iterations; i++) {
 		AK_Atomic_Increment_U8(&Data->SharedInt, AK_ATOMIC_MEMORY_ORDER_RELAXED);
@@ -1766,6 +1788,8 @@ static AK_THREAD_CALLBACK_DEFINE(IncrementU8) {
 
 static AK_THREAD_CALLBACK_DEFINE(DecrementU8) {
 	increment8_data* Data = (increment8_data*)UserData;
+	(void)Thread;
+
 	uint8_t i;
 	for(i = 0; i < Data->Iterations; i++) {
 		AK_Atomic_Decrement_U8(&Data->SharedInt, AK_ATOMIC_MEMORY_ORDER_RELAXED);
@@ -1775,6 +1799,8 @@ static AK_THREAD_CALLBACK_DEFINE(DecrementU8) {
 
 static AK_THREAD_CALLBACK_DEFINE(FetchAddU8) {
 	increment8_data* Data = (increment8_data*)UserData;
+	(void)Thread;
+
 	uint8_t i;
 	for(i = 0; i < Data->Iterations; i++) {
 		AK_Atomic_Fetch_Add_U8(&Data->SharedInt, 1, AK_ATOMIC_MEMORY_ORDER_RELAXED);
@@ -1784,6 +1810,7 @@ static AK_THREAD_CALLBACK_DEFINE(FetchAddU8) {
 
 static AK_THREAD_CALLBACK_DEFINE(FetchSubU8) {
 	increment8_data* Data = (increment8_data*)UserData;
+	(void)Thread;
 	uint8_t i;
 	for(i = 0; i < Data->Iterations; i++) {
 		AK_Atomic_Fetch_Sub_U8(&Data->SharedInt, 1, AK_ATOMIC_MEMORY_ORDER_RELAXED);
@@ -1796,8 +1823,8 @@ UTEST(Increment, U8) {
 	Memory_Clear(&Data, sizeof(increment8_data));
 
 	uint8_t NumThreads = (uint8_t)AK_Get_Processor_Thread_Count();
-	Data.Iterations = 255/NumThreads;
-	uint8_t TotalAmount = Data.Iterations*NumThreads;
+	Data.Iterations = 255u/NumThreads;
+	uint8_t TotalAmount = (uint8_t)(Data.Iterations*NumThreads);
 	
 	ak_thread** Threads = (ak_thread**)Allocate_Memory(sizeof(ak_thread*)*NumThreads);
 
@@ -1852,6 +1879,7 @@ typedef struct {
 
 static AK_THREAD_CALLBACK_DEFINE(IncrementU16) {
 	increment16_data* Data = (increment16_data*)UserData;
+	(void)Thread;
 	uint16_t i;
 	for(i = 0; i < Data->Iterations; i++) {
 		AK_Atomic_Increment_U16(&Data->SharedInt, AK_ATOMIC_MEMORY_ORDER_RELAXED);
@@ -1861,6 +1889,7 @@ static AK_THREAD_CALLBACK_DEFINE(IncrementU16) {
 
 static AK_THREAD_CALLBACK_DEFINE(DecrementU16) {
 	increment16_data* Data = (increment16_data*)UserData;
+	(void)Thread;
 	uint16_t i;
 	for(i = 0; i < Data->Iterations; i++) {
 		AK_Atomic_Decrement_U16(&Data->SharedInt, AK_ATOMIC_MEMORY_ORDER_RELAXED);
@@ -1870,6 +1899,7 @@ static AK_THREAD_CALLBACK_DEFINE(DecrementU16) {
 
 static AK_THREAD_CALLBACK_DEFINE(FetchAddU16) {
 	increment16_data* Data = (increment16_data*)UserData;
+	(void)Thread;
 	uint16_t i;
 	for(i = 0; i < Data->Iterations; i++) {
 		AK_Atomic_Fetch_Add_U16(&Data->SharedInt, 1, AK_ATOMIC_MEMORY_ORDER_RELAXED);
@@ -1879,6 +1909,7 @@ static AK_THREAD_CALLBACK_DEFINE(FetchAddU16) {
 
 static AK_THREAD_CALLBACK_DEFINE(FetchSubU16) {
 	increment16_data* Data = (increment16_data*)UserData;
+	(void)Thread;
 	uint16_t i;
 	for(i = 0; i < Data->Iterations; i++) {
 		AK_Atomic_Fetch_Sub_U16(&Data->SharedInt, 1, AK_ATOMIC_MEMORY_ORDER_RELAXED);
@@ -1891,8 +1922,8 @@ UTEST(Increment, U16) {
 	Memory_Clear(&Data, sizeof(increment16_data));
 
 	uint16_t NumThreads = (uint16_t)AK_Get_Processor_Thread_Count();
-	Data.Iterations = 65535/NumThreads;
-	uint16_t TotalAmount = Data.Iterations*NumThreads;
+	Data.Iterations = 65535u/NumThreads;
+	uint16_t TotalAmount = (uint16_t)(Data.Iterations*NumThreads);
 	
 	ak_thread** Threads = (ak_thread**)Allocate_Memory(sizeof(ak_thread*)*NumThreads);
 
@@ -1947,6 +1978,7 @@ typedef struct {
 
 static AK_THREAD_CALLBACK_DEFINE(IncrementU32) {
 	increment32_data* Data = (increment32_data*)UserData;
+	(void)Thread;
 	uint32_t i;
 	for(i = 0; i < Data->Iterations; i++) {
 		AK_Atomic_Increment_U32(&Data->SharedInt, AK_ATOMIC_MEMORY_ORDER_RELAXED);
@@ -1956,6 +1988,7 @@ static AK_THREAD_CALLBACK_DEFINE(IncrementU32) {
 
 static AK_THREAD_CALLBACK_DEFINE(DecrementU32) {
 	increment32_data* Data = (increment32_data*)UserData;
+	(void)Thread;
 	uint32_t i;
 	for(i = 0; i < Data->Iterations; i++) {
 		AK_Atomic_Decrement_U32(&Data->SharedInt, AK_ATOMIC_MEMORY_ORDER_RELAXED);
@@ -1965,6 +1998,7 @@ static AK_THREAD_CALLBACK_DEFINE(DecrementU32) {
 
 static AK_THREAD_CALLBACK_DEFINE(FetchAddU32) {
 	increment32_data* Data = (increment32_data*)UserData;
+	(void)Thread;
 	uint32_t i;
 	for(i = 0; i < Data->Iterations; i++) {
 		AK_Atomic_Fetch_Add_U32(&Data->SharedInt, 1, AK_ATOMIC_MEMORY_ORDER_RELAXED);
@@ -1974,6 +2008,7 @@ static AK_THREAD_CALLBACK_DEFINE(FetchAddU32) {
 
 static AK_THREAD_CALLBACK_DEFINE(FetchSubU32) {
 	increment32_data* Data = (increment32_data*)UserData;
+	(void)Thread;
 	uint32_t i;
 	for(i = 0; i < Data->Iterations; i++) {
 		AK_Atomic_Fetch_Sub_U32(&Data->SharedInt, 1, AK_ATOMIC_MEMORY_ORDER_RELAXED);
@@ -2042,6 +2077,7 @@ typedef struct {
 
 static AK_THREAD_CALLBACK_DEFINE(IncrementU64) {
 	increment64_data* Data = (increment64_data*)UserData;
+	(void)Thread;
 	uint64_t i;
 	for(i = 0; i < Data->Iterations; i++) {
 		AK_Atomic_Increment_U64(&Data->SharedInt, AK_ATOMIC_MEMORY_ORDER_RELAXED);
@@ -2051,6 +2087,7 @@ static AK_THREAD_CALLBACK_DEFINE(IncrementU64) {
 
 static AK_THREAD_CALLBACK_DEFINE(DecrementU64) {
 	increment64_data* Data = (increment64_data*)UserData;
+	(void)Thread;
 	uint64_t i;
 	for(i = 0; i < Data->Iterations; i++) {
 		AK_Atomic_Decrement_U64(&Data->SharedInt, AK_ATOMIC_MEMORY_ORDER_RELAXED);
@@ -2060,6 +2097,7 @@ static AK_THREAD_CALLBACK_DEFINE(DecrementU64) {
 
 static AK_THREAD_CALLBACK_DEFINE(FetchAddU64) {
 	increment64_data* Data = (increment64_data*)UserData;
+	(void)Thread;
 	uint64_t i;
 	for(i = 0; i < Data->Iterations; i++) {
 		AK_Atomic_Fetch_Add_U64(&Data->SharedInt, 1, AK_ATOMIC_MEMORY_ORDER_RELAXED);
@@ -2069,6 +2107,7 @@ static AK_THREAD_CALLBACK_DEFINE(FetchAddU64) {
 
 static AK_THREAD_CALLBACK_DEFINE(FetchSubU64) {
 	increment64_data* Data = (increment64_data*)UserData;
+	(void)Thread;
 	uint64_t i;
 	for(i = 0; i < Data->Iterations; i++) {
 		AK_Atomic_Fetch_Sub_U64(&Data->SharedInt, 1, AK_ATOMIC_MEMORY_ORDER_RELAXED);
@@ -2082,7 +2121,7 @@ UTEST(Increment, U64) {
 
 	uint32_t NumThreads = AK_Get_Processor_Thread_Count();
 	Data.Iterations = 100000;
-	uint32_t TotalAmount = Data.Iterations*NumThreads;
+	uint64_t TotalAmount = Data.Iterations*NumThreads;
 	
 	ak_thread** Threads = (ak_thread**)Allocate_Memory(sizeof(ak_thread*)*NumThreads);
 

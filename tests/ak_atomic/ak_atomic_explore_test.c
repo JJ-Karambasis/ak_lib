@@ -1,16 +1,14 @@
-#define AK_ATOMIC_EXCLUDE_STDINT
 #include "ak_atomic_test_header.h"
 
-#include <stdatomic.h>
 #include <stdio.h>
 
 int main(void) {
-    ak_atomic_u8 A;
-    AK_Atomic_Store_U8(&A, 5, AK_ATOMIC_MEMORY_ORDER_RELAXED);
+    ak_atomic_u64 A;
+    AK_Atomic_Store_U64(&A, 5, AK_ATOMIC_MEMORY_ORDER_SEQ_CST);
 
-    //uint32_t ATest = AK_Atomic_Increment_U8(&A, AK_ATOMIC_MEMORY_ORDER_RELAXED);
-    uint32_t ATest2 = AK_Atomic_Load_U8(&A, AK_ATOMIC_MEMORY_ORDER_RELAXED);
-    printf("%d\n", ATest2);
+//    //uint32_t ATest = AK_Atomic_Increment_U8(&A, AK_ATOMIC_MEMORY_ORDER_RELAXED);
+    //AK_Atomic_Load_U64(&A, AK_ATOMIC_MEMORY_ORDER_SEQ_CST);
+//    printf("%lld\n", ATest2);
 
     // atomic_uint B;
     // atomic_store_explicit(&B, 5, memory_order_relaxed);

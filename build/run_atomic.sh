@@ -27,8 +27,6 @@ bin_path="$bin_path/$aarch"
 if [ $debug -eq 1 ]; then bin_path="$bin_path/debug"; fi
 if [ $release -eq 1 ]; then bin_path="$bin_path/release"; fi
 
-echo $bin_path
-
 paths=(`find "$bin_path" -perm -o=x,-g=x,-u=x -type f -name "*_unit_test"`)
 for i in "${paths[@]}"; do
     echo "Running $(basename $i):"

@@ -36,7 +36,7 @@ void Internal_Assert(void);
 
 #ifdef _MSC_VER
 #pragma warning(push)
-#pragma warning(disable : 4053 4711 5031 5045)
+#pragma warning(disable : 4053 4514 4625 4626 4711 4774 5026 5027 5031 5045)
 
 #ifndef crash
 #define crash() *((int*)0) = 0
