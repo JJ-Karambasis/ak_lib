@@ -198,8 +198,8 @@ typedef struct {
 	void* Nonatomic;
 } ak_atomic_ptr;
 
-#define AK_Atomic_Fence_Acquire() _ReadBarrier()
-#define AK_Atomic_Fence_Release() _WriteBarrier()
+#define AK_Atomic_Fence_Acquire() _ReadWriteBarrier()
+#define AK_Atomic_Fence_Release() _ReadWriteBarrier()
 #define AK_Atomic_Fence_Seq_Cst() _ReadWriteBarrier(); MemoryBarrier()
 
 #pragma warning(pop)
@@ -1388,7 +1388,7 @@ static uint8_t AK_Atomic_Load_U8_Relaxed(const ak_atomic_u8* Object) {
 
 static uint8_t AK_Atomic_Load_U8_Acquire(const ak_atomic_u8* Object) {
 	uint8_t Result = Object->Nonatomic;
-	_ReadBarrier();
+	_ReadWriteBarrier();
 	return Result;
 }
 
