@@ -2127,26 +2127,6 @@ UTEST(Increment, U64) {
 
 	uint64_t i;
 	for(i = 0; i < NumThreads; i++) {
-		Threads[i] = AK_Thread_Create(IncrementU64, &Data);
-	}
-
-	for(i = 0; i < NumThreads; i++) {
-        AK_Thread_Delete(Threads[i]);
-    }
-
-	ASSERT_TRUE(AK_Atomic_Load_U64(&Data.SharedInt, AK_ATOMIC_MEMORY_ORDER_RELAXED) == TotalAmount);
-
-	for(i = 0; i < NumThreads; i++) {
-		Threads[i] = AK_Thread_Create(DecrementU64, &Data);
-	}
-
-	for(i = 0; i < NumThreads; i++) {
-        AK_Thread_Delete(Threads[i]);
-    }
-
-	ASSERT_TRUE(AK_Atomic_Load_U64(&Data.SharedInt, AK_ATOMIC_MEMORY_ORDER_RELAXED) == 0);
-
-	for(i = 0; i < NumThreads; i++) {
 		Threads[i] = AK_Thread_Create(FetchAddU64, &Data);
 	}
 
@@ -2167,6 +2147,26 @@ UTEST(Increment, U64) {
 	ASSERT_TRUE(AK_Atomic_Load_U64(&Data.SharedInt, AK_ATOMIC_MEMORY_ORDER_RELAXED) == 0);
 
 	Free_Memory(Threads);
+
+	for(i = 0; i < NumThreads; i++) {
+		Threads[i] = AK_Thread_Create(IncrementU64, &Data);
+	}
+
+	for(i = 0; i < NumThreads; i++) {
+        AK_Thread_Delete(Threads[i]);
+    }
+
+	ASSERT_TRUE(AK_Atomic_Load_U64(&Data.SharedInt, AK_ATOMIC_MEMORY_ORDER_RELAXED) == TotalAmount);
+
+	for(i = 0; i < NumThreads; i++) {
+		Threads[i] = AK_Thread_Create(DecrementU64, &Data);
+	}
+
+	for(i = 0; i < NumThreads; i++) {
+        AK_Thread_Delete(Threads[i]);
+    }
+
+	ASSERT_TRUE(AK_Atomic_Load_U64(&Data.SharedInt, AK_ATOMIC_MEMORY_ORDER_RELAXED) == 0);
 }
 
 UTEST_MAIN();

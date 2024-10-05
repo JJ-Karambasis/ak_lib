@@ -22,7 +22,6 @@ if [ ! $release -eq 1 ]; then debug=1; fi
 
 # Build information
 if [ $clang -eq 1 ]; then compiler="Clang"; fi
-
 if [ $debug -eq 1 ]; then build_mode="Debug"; fi
 if [ $release -eq 1 ]; then build_mode="Release"; fi
 
@@ -30,6 +29,8 @@ if [ $release -eq 1 ]; then build_mode="Release"; fi
 if [ $clang -eq 1 ]; then bin_path="$bin_path/clang"; fi
 
 bin_path="$bin_path/$aarch"
+
+echo $bin_path
 
 if [ $debug -eq 1 ]; then bin_path="$bin_path/debug"; fi
 if [ $release -eq 1 ]; then bin_path="$bin_path/release"; fi
@@ -40,7 +41,7 @@ fi
 
 # Clang flags
 clang_warnings="-Werror -Wall -Wno-implicit-function-declaration"
-clang_flags="-g -fdiagnostics-absolute-paths -arch $aarch -I$base_path $clang_warnings"
+clang_flags="-g -fdiagnostics-absolute-paths -I$base_path $clang_warnings -m32"
 
 clang_debug_flags="-O0 $clang_flags"
 clang_release_flags="-O3 $clang_flags"
@@ -66,42 +67,6 @@ declare -a compile_output
 declare -a compile_std
 
 if [ $clang -eq 1 ]; then
-    # compile_std+=("-std=c89 -ansi")
-    # compile_tests+=("$test_path/ak_atomic_compile_test.c")
-	# compile_output+=("ak_atomic_c89_compile_test")
-
-    # compile_std+=("-std=c99")
-    # compile_tests+=("$test_path/ak_atomic_compile_test.c")
-	# compile_output+=("ak_atomic_c99_compile_test")
-
-    # compile_std+=("-std=c11")
-    # compile_tests+=("$test_path/ak_atomic_compile_test.c")
-	# compile_output+=("ak_atomic_c11_compile_test")
-
-    # compile_std+=("-std=c17")
-    # compile_tests+=("$test_path/ak_atomic_compile_test.c")
-	# compile_output+=("ak_atomic_c17_compile_test")
-
-    # compile_std+=("-std=c++98 -lc++")
-    # compile_tests+=("$test_path/ak_atomic_compile_test.cpp")
-	# compile_output+=("ak_atomic_cpp98_compile_test")
-
-    # compile_std+=("-std=c++11 -lc++")
-    # compile_tests+=("$test_path/ak_atomic_compile_test.cpp")
-	# compile_output+=("ak_atomic_cpp11_compile_test")
-
-    # compile_std+=("-std=c++14 -lc++")
-    # compile_tests+=("$test_path/ak_atomic_compile_test.cpp")
-	# compile_output+=("ak_atomic_cpp14_compile_test")
-
-    # compile_std+=("-std=c++17 -lc++")
-    # compile_tests+=("$test_path/ak_atomic_compile_test.cpp")
-	# compile_output+=("ak_atomic_cpp17_compile_test")
-
-    # compile_std+=("-std=c++20 -lc++")
-    # compile_tests+=("$test_path/ak_atomic_compile_test.cpp")
-	# compile_output+=("ak_atomic_cpp20_compile_test")
-    
     compile_std+=("-std=c89 -ansi")
     compile_tests+=("$test_path/ak_atomic_unit_test.c")
 	compile_output+=("ak_atomic_c89_unit_test")
@@ -118,23 +83,23 @@ if [ $clang -eq 1 ]; then
     compile_tests+=("$test_path/ak_atomic_unit_test.c")
 	compile_output+=("ak_atomic_c17_unit_test")
 
-    compile_std+=("-std=c++98 -lc++")
+    compile_std+=("-std=c++98 -lstdc++")
     compile_tests+=("$test_path/ak_atomic_unit_test.cpp")
 	compile_output+=("ak_atomic_cpp98_unit_test")
 
-    compile_std+=("-std=c++11 -lc++")
+    compile_std+=("-std=c++11 -lstdc++")
     compile_tests+=("$test_path/ak_atomic_unit_test.cpp")
 	compile_output+=("ak_atomic_cpp11_unit_test")
 
-    compile_std+=("-std=c++14 -lc++")
+    compile_std+=("-std=c++14 -lstdc++")
     compile_tests+=("$test_path/ak_atomic_unit_test.cpp")
 	compile_output+=("ak_atomic_cpp14_unit_test")
 
-    compile_std+=("-std=c++17 -lc++")
+    compile_std+=("-std=c++17 -lstdc++")
     compile_tests+=("$test_path/ak_atomic_unit_test.cpp")
 	compile_output+=("ak_atomic_cpp17_unit_test")
 
-    compile_std+=("-std=c++20 -lc++")
+    compile_std+=("-std=c++20 -lstdc++")
     compile_tests+=("$test_path/ak_atomic_unit_test.cpp")
 	compile_output+=("ak_atomic_cpp20_unit_test")
 fi
