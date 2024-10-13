@@ -3,23 +3,28 @@
 setlocal ENABLEDELAYEDEXPANSION
 REM - Common global variables
 
-set base_path=%~dp0..
-set build_path=%base_path%\build
+set base_path=%~dp0..\..
+set build_path=%base_path%\build\ak_atomic
 set bin_path=%base_path%\bin\ak_atomic
 set test_path=%base_path%\tests\ak_atomic
 
 REM - Build inputs and validation
 for %%a in (%*) do set "%%a=1" 
-if not "%release%"=="1" set debug=1
 
+if "%android%"=="1" (
+	call %build_path%\build_android.bat %* || exit /b 1
+	exit /b 0
+)
+
+if not "%release%"=="1" set debug=1
 if not "%intel%"=="1" (
 	if not "%clang%"=="1" set msvc=1
 )
 
 set msvc_version=0
 if "%msvc%"=="1" (
-	if "%x64%"=="1" call %build_path%\setup_msvc.bat x64 || exit /b 1
-	if "%x86%"=="1" call %build_path%\setup_msvc.bat x86 || exit /b 1
+	if "%x64%"=="1" call %build_path%\..\setup_msvc.bat x64 || exit /b 1
+	if "%x86%"=="1" call %build_path%\..\setup_msvc.bat x86 || exit /b 1
 )
 
 if "%intel%"=="1" (

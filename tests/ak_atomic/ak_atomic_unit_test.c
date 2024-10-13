@@ -2169,7 +2169,9 @@ UTEST(Increment, U64) {
 	ASSERT_TRUE(AK_Atomic_Load_U64(&Data.SharedInt, AK_ATOMIC_MEMORY_ORDER_RELAXED) == 0);
 }
 
+#ifndef __ANDROID__
 UTEST_MAIN();
+#endif
 
 #ifdef AK_ATOMIC_COMPILER_MSVC
 #pragma warning(pop)

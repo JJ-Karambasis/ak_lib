@@ -26,9 +26,25 @@
 	#if defined(__arm__)
 		#define AK_ATOMIC_CPU_ARM
 		#define AK_ATOMIC_PTR_SIZE 4
+
+		#if defined(__ARM_ARCH_7__) || defined(__ARM_ARCH_7A__) || defined(__ARM_ARCH_7EM__) || defined(__ARM_ARCH_7R__) || defined(__ARM_ARCH_7M__) || defined(__ARM_ARCH_7S__)
+			// ARMv7
+			#define AK_ATOMIC_ARM_VERSION 7
+		#else 
+			#error "Not defined!"
+		#endif
+
 	#elif defined(__aarch64__)
 		#define AK_ATOMIC_CPU_AARCH64
 		#define AK_ATOMIC_PTR_SIZE 8
+
+		#if defined(__ARM64_ARCH_8__)
+			// ARMv8
+			#define AK_ATOMIC_ARM_VERSION 8
+		#else
+			#error "Not defined!"
+		#endif
+
 	#elif defined(__x86_64__)
 		#define AK_ATOMIC_CPU_X64
 		#define AK_ATOMIC_PTR_SIZE 8   
@@ -5784,6 +5800,1389 @@ static uint64_t AK_Atomic_Decrement_U64_Seq_Cst(ak_atomic_u64* Object) {
 #elif defined(AK_ATOMIC_COMPILER_GCC) && defined(AK_ATOMIC_CPU_ARM)
 AK_ATOMIC__COMPILE_TIME_ASSERT(AK_ATOMIC_PTR_SIZE == 4);
 
+static uint8_t AK_Atomic_Load_U8_Relaxed(const ak_atomic_u8* Object) {
+	return Object->Nonatomic;
+}
+
+static uint8_t AK_Atomic_Load_U8_Acquire(const ak_atomic_u8* Object) {
+	uint8_t Result = Object->Nonatomic;
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint8_t AK_Atomic_Load_U8_Seq_Cst(const ak_atomic_u8* Object) {
+	return AK_Atomic_Load_U8_Acquire(Object);
+}
+
+static void AK_Atomic_Store_U8_Relaxed(ak_atomic_u8* Object, uint8_t Value) {
+	Object->Nonatomic = Value;
+}
+
+static void AK_Atomic_Store_U8_Release(ak_atomic_u8* Object, uint8_t Value) {
+	AK_Atomic_Fence_Release();
+	AK_Atomic_Store_U8_Relaxed(Object, Value);
+}
+
+static void AK_Atomic_Store_U8_Seq_Cst(ak_atomic_u8* Object, uint8_t Value) {
+	AK_Atomic_Store_U8_Release(Object, Value);
+	AK_Atomic_Fence_Seq_Cst();
+}
+
+static uint8_t AK_Atomic_Exchange_U8_Relaxed(ak_atomic_u8* Object, uint8_t Value) {
+	uint8_t Previous, Status;
+	__asm__ volatile(
+		"1:	ldrexb %0, [%3]\n"
+		"	strexb %1, %4, [%3]\n"
+		"	cmp	   %1, #0\n"
+		"	bne	   1b"
+		: "=&r" (Previous), "=&r" (Status), "+Q" (Object->Nonatomic)
+		: "r" (Object), "r" (Value)
+		: "cc");
+	return Previous;
+}
+
+static uint8_t AK_Atomic_Exchange_U8_Acquire(ak_atomic_u8* Object, uint8_t Value) {
+	uint8_t Result = AK_Atomic_Exchange_U8_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint8_t AK_Atomic_Exchange_U8_Release(ak_atomic_u8* Object, uint8_t Value) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Exchange_U8_Relaxed(Object, Value);
+}
+
+static uint8_t AK_Atomic_Exchange_U8_Acq_Rel(ak_atomic_u8* Object, uint8_t Value) {
+	AK_Atomic_Fence_Release();
+	uint8_t Result = AK_Atomic_Exchange_U8_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint8_t AK_Atomic_Exchange_U8_Seq_Cst(ak_atomic_u8* Object, uint8_t Value) {
+	return AK_Atomic_Exchange_U8_Acq_Rel(Object, Value);
+}
+
+static uint8_t AK_Atomic_Compare_Exchange_Strong_U8_Relaxed(ak_atomic_u8* Object, uint8_t OldValue, uint8_t NewValue) {
+	uint8_t Previous, Status;
+	__asm__ volatile(
+		"1:	ldrexb %0, [%3]\n"
+		"	cmp	   %0, %4\n"
+		"	bne    2f\n"
+		"	strexb %1, %5, [%3]\n"
+		"	cmp    %1, #0\n"
+		"	bne    1b\n"
+		"2:"
+		: "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic)
+		: "r" (Object), "Ir" (OldValue), "r" (NewValue)
+		: "cc");
+	return Previous;
+}
+
+static uint8_t AK_Atomic_Compare_Exchange_Strong_U8_Acquire(ak_atomic_u8* Object, uint8_t OldValue, uint8_t NewValue) {
+	uint8_t Result = AK_Atomic_Compare_Exchange_Strong_U8_Relaxed(Object, OldValue, NewValue);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint8_t AK_Atomic_Compare_Exchange_Strong_U8_Release(ak_atomic_u8* Object, uint8_t OldValue, uint8_t NewValue) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Compare_Exchange_Strong_U8_Relaxed(Object, OldValue, NewValue);
+}
+
+static uint8_t AK_Atomic_Compare_Exchange_Strong_U8_Acq_Rel(ak_atomic_u8* Object, uint8_t OldValue, uint8_t NewValue) {
+	AK_Atomic_Fence_Release();
+	uint8_t Result = AK_Atomic_Compare_Exchange_Strong_U8_Relaxed(Object, OldValue, NewValue);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint8_t AK_Atomic_Compare_Exchange_Strong_U8_Seq_Cst(ak_atomic_u8* Object, uint8_t OldValue, uint8_t NewValue) {
+	return AK_Atomic_Compare_Exchange_Strong_U8_Acq_Rel(Object, OldValue, NewValue);
+}
+
+static uint8_t AK_Atomic_Compare_Exchange_Weak_U8_Relaxed(ak_atomic_u8* Object, uint8_t OldValue, uint8_t NewValue) {
+	uint8_t Previous, Status;
+	__asm__ volatile(
+		"1:	ldrexb %0, [%3]\n"
+		"	cmp	   %0, %4\n"
+		"	bne    2f\n"
+		"	strexb %1, %5, [%3]\n"
+		"2:"
+		: "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic)
+		: "r" (Object), "Ir" (OldValue), "r" (NewValue)
+		: "cc");
+	return Previous;
+}
+
+static uint8_t AK_Atomic_Compare_Exchange_Weak_U8_Acquire(ak_atomic_u8* Object, uint8_t OldValue, uint8_t NewValue) {
+	uint8_t Result = AK_Atomic_Compare_Exchange_Weak_U8_Relaxed(Object, OldValue, NewValue);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint8_t AK_Atomic_Compare_Exchange_Weak_U8_Release(ak_atomic_u8* Object, uint8_t OldValue, uint8_t NewValue) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Compare_Exchange_Weak_U8_Relaxed(Object, OldValue, NewValue);
+}
+
+static uint8_t AK_Atomic_Compare_Exchange_Weak_U8_Acq_Rel(ak_atomic_u8* Object, uint8_t OldValue, uint8_t NewValue) {
+	AK_Atomic_Fence_Release();
+	uint8_t Result = AK_Atomic_Compare_Exchange_Weak_U8_Relaxed(Object, OldValue, NewValue);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint8_t AK_Atomic_Compare_Exchange_Weak_U8_Seq_Cst(ak_atomic_u8* Object, uint8_t OldValue, uint8_t NewValue) {
+	return AK_Atomic_Compare_Exchange_Weak_U8_Relaxed(Object, OldValue, NewValue);
+}
+
+static uint8_t AK_Atomic_Fetch_Add_U8_Relaxed(ak_atomic_u8* Object, uint8_t Value) {
+	uint8_t Previous, Temp, Status;
+	__asm__ volatile(
+		"1: ldrexb %0, [%4]\n"
+		"   add    %3, %0, %5\n"
+		"   strexb %1, %3, [%4]\n"
+		"   cmp    %1, #0\n"
+        "   bne    1b"
+		: "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic), "=&r" (Temp)
+	: "r" (Object), "r" (Value)
+	: "cc");
+    return Previous;
+}
+
+static uint8_t AK_Atomic_Fetch_Add_U8_Acquire(ak_atomic_u8* Object, uint8_t Value) {
+	uint8_t Result = AK_Atomic_Fetch_Add_U8_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint8_t AK_Atomic_Fetch_Add_U8_Release(ak_atomic_u8* Object, uint8_t Value) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Fetch_Add_U8_Relaxed(Object, Value);
+}
+
+static uint8_t AK_Atomic_Fetch_Add_U8_Acq_Rel(ak_atomic_u8* Object, uint8_t Value) {
+	AK_Atomic_Fence_Release();
+	uint8_t Result = AK_Atomic_Fetch_Add_U8_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint8_t AK_Atomic_Fetch_Add_U8_Seq_Cst(ak_atomic_u8* Object, uint8_t Value) {
+	return AK_Atomic_Fetch_Add_U8_Acq_Rel(Object, Value);
+}
+
+static uint8_t AK_Atomic_Fetch_Sub_U8_Relaxed(ak_atomic_u8* Object, uint8_t Value) {
+	uint8_t Previous, Temp, Status;
+	__asm__ volatile(
+		"1: ldrexb %0, [%4]\n"
+		"   sub    %3, %0, %5\n"
+		"   strexb %1, %3, [%4]\n"
+		"   cmp    %1, #0\n"
+        "   bne    1b"
+		: "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic), "=&r" (Temp)
+	: "r" (Object), "r" (Value)
+	: "cc");
+    return Previous;
+}
+
+static uint8_t AK_Atomic_Fetch_Sub_U8_Acquire(ak_atomic_u8* Object, uint8_t Value) {
+	uint8_t Result = AK_Atomic_Fetch_Sub_U8_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint8_t AK_Atomic_Fetch_Sub_U8_Release(ak_atomic_u8* Object, uint8_t Value) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Fetch_Sub_U8_Relaxed(Object, Value);
+}
+
+static uint8_t AK_Atomic_Fetch_Sub_U8_Acq_Rel(ak_atomic_u8* Object, uint8_t Value) {
+	AK_Atomic_Fence_Release();
+	uint8_t Result = AK_Atomic_Fetch_Sub_U8_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint8_t AK_Atomic_Fetch_Sub_U8_Seq_Cst(ak_atomic_u8* Object, uint8_t Value) {
+	return AK_Atomic_Fetch_Sub_U8_Acq_Rel(Object, Value);
+}
+
+static uint8_t AK_Atomic_Fetch_And_U8_Relaxed(ak_atomic_u8* Object, uint8_t Value) {
+	uint8_t Previous, Temp, Status;
+	__asm__ volatile(
+		"1: ldrexb %0, [%4]\n"
+		"   and    %3, %0, %5\n"
+		"   strexb %1, %3, [%4]\n"
+		"   cmp    %1, #0\n"
+        "   bne    1b"
+		: "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic), "=&r" (Temp)
+		: "r" (Object), "r" (Value)
+		: "cc");
+    return Previous;
+}
+
+static uint8_t AK_Atomic_Fetch_And_U8_Acquire(ak_atomic_u8* Object, uint8_t Value) {
+	uint8_t Result = AK_Atomic_Fetch_And_U8_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint8_t AK_Atomic_Fetch_And_U8_Release(ak_atomic_u8* Object, uint8_t Value) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Fetch_And_U8_Relaxed(Object, Value);
+}
+
+static uint8_t AK_Atomic_Fetch_And_U8_Acq_Rel(ak_atomic_u8* Object, uint8_t Value) {
+	AK_Atomic_Fence_Release();
+	uint8_t Result = AK_Atomic_Fetch_And_U8_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint8_t AK_Atomic_Fetch_And_U8_Seq_Cst(ak_atomic_u8* Object, uint8_t Value) {
+	return AK_Atomic_Fetch_And_U8_Acq_Rel(Object, Value);
+}
+
+static uint8_t AK_Atomic_Fetch_Or_U8_Relaxed(ak_atomic_u8* Object, uint8_t Value) {
+	uint8_t Previous, Temp, Status;
+	__asm__ volatile(
+		"1: ldrexb %0, [%4]\n"
+		"   orr    %3, %0, %5\n"
+		"   strexb %1, %3, [%4]\n"
+		"   cmp    %1, #0\n"
+        "   bne    1b"
+		: "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic), "=&r" (Temp)
+	: "r" (Object), "r" (Value)
+	: "cc");
+    return Previous;
+}
+
+static uint8_t AK_Atomic_Fetch_Or_U8_Acquire(ak_atomic_u8* Object, uint8_t Value) {
+	uint8_t Result = AK_Atomic_Fetch_Or_U8_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint8_t AK_Atomic_Fetch_Or_U8_Release(ak_atomic_u8* Object, uint8_t Value) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Fetch_Or_U8_Relaxed(Object, Value);
+}
+
+static uint8_t AK_Atomic_Fetch_Or_U8_Acq_Rel(ak_atomic_u8* Object, uint8_t Value) {
+	AK_Atomic_Fence_Release();
+	uint8_t Result = AK_Atomic_Fetch_Or_U8_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint8_t AK_Atomic_Fetch_Or_U8_Seq_Cst(ak_atomic_u8* Object, uint8_t Value) {
+	return AK_Atomic_Fetch_Or_U8_Acq_Rel(Object, Value);
+}
+
+static uint8_t AK_Atomic_Fetch_XOr_U8_Relaxed(ak_atomic_u8* Object, uint8_t Value) {
+	uint8_t Previous, Temp, Status;
+	__asm__ volatile(
+		"1: ldrexb %0, [%4]\n"
+		"   eor    %3, %0, %5\n"
+		"   strexb %1, %3, [%4]\n"
+		"   cmp    %1, #0\n"
+        "   bne    1b"
+		: "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic), "=&r" (Temp)
+	: "r" (Object), "r" (Value)
+	: "cc");
+    return Previous;
+}
+
+static uint8_t AK_Atomic_Fetch_XOr_U8_Acquire(ak_atomic_u8* Object, uint8_t Value) {
+	uint8_t Result = AK_Atomic_Fetch_XOr_U8_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint8_t AK_Atomic_Fetch_XOr_U8_Release(ak_atomic_u8* Object, uint8_t Value) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Fetch_XOr_U8_Relaxed(Object, Value);
+}
+
+static uint8_t AK_Atomic_Fetch_XOr_U8_Acq_Rel(ak_atomic_u8* Object, uint8_t Value) {
+	AK_Atomic_Fence_Release();
+	uint8_t Result = AK_Atomic_Fetch_XOr_U8_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint8_t AK_Atomic_Fetch_XOr_U8_Seq_Cst(ak_atomic_u8* Object, uint8_t Value) {
+	return AK_Atomic_Fetch_XOr_U8_Relaxed(Object, Value);
+}
+
+static uint8_t AK_Atomic_Increment_U8_Relaxed(ak_atomic_u8* Object) {
+	return AK_Atomic_Fetch_Add_U8_Relaxed(Object, 1) + 1;
+}
+
+static uint8_t AK_Atomic_Increment_U8_Release(ak_atomic_u8* Object) {
+	return AK_Atomic_Fetch_Add_U8_Release(Object, 1) + 1;
+}
+
+static uint8_t AK_Atomic_Increment_U8_Seq_Cst(ak_atomic_u8* Object) {
+	return AK_Atomic_Fetch_Add_U8_Seq_Cst(Object, 1) + 1;
+}
+
+static uint8_t AK_Atomic_Decrement_U8_Relaxed(ak_atomic_u8* Object) {
+	return AK_Atomic_Fetch_Sub_U8_Relaxed(Object, 1) - 1;
+}
+
+static uint8_t AK_Atomic_Decrement_U8_Release(ak_atomic_u8* Object) {
+	return AK_Atomic_Fetch_Sub_U8_Release(Object, 1) - 1;
+}
+
+static uint8_t AK_Atomic_Decrement_U8_Seq_Cst(ak_atomic_u8* Object) {
+	return AK_Atomic_Fetch_Sub_U8_Seq_Cst(Object, 1) - 1;
+}
+
+static uint16_t AK_Atomic_Load_U16_Relaxed(const ak_atomic_u16* Object) {
+	return Object->Nonatomic;
+}
+
+static uint16_t AK_Atomic_Load_U16_Acquire(const ak_atomic_u16* Object) {
+	uint16_t Result = Object->Nonatomic;
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint16_t AK_Atomic_Load_U16_Seq_Cst(const ak_atomic_u16* Object) {
+	return AK_Atomic_Load_U16_Acquire(Object);
+}
+
+static void AK_Atomic_Store_U16_Relaxed(ak_atomic_u16* Object, uint16_t Value) {
+	Object->Nonatomic = Value;
+}
+
+static void AK_Atomic_Store_U16_Release(ak_atomic_u16* Object, uint16_t Value) {
+	AK_Atomic_Fence_Release();
+	AK_Atomic_Store_U16_Relaxed(Object, Value);
+}
+
+static void AK_Atomic_Store_U16_Seq_Cst(ak_atomic_u16* Object, uint16_t Value) {
+	AK_Atomic_Store_U16_Release(Object, Value);
+	AK_Atomic_Fence_Seq_Cst();
+}
+
+static uint16_t AK_Atomic_Exchange_U16_Relaxed(ak_atomic_u16* Object, uint16_t Value) {
+	uint16_t Previous, Status;
+	__asm__ volatile(
+		"1:	ldrexh %0, [%3]\n"
+		"	strexh %1, %4, [%3]\n"
+		"	cmp	   %1, #0\n"
+		"	bne	   1b"
+		: "=&r" (Previous), "=&r" (Status), "+Q" (Object->Nonatomic)
+	: "r" (Object), "r" (Value)
+	: "cc");
+	return Previous;
+}
+
+static uint16_t AK_Atomic_Exchange_U16_Acquire(ak_atomic_u16* Object, uint16_t Value) {
+	uint16_t Result = AK_Atomic_Exchange_U16_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint16_t AK_Atomic_Exchange_U16_Release(ak_atomic_u16* Object, uint16_t Value) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Exchange_U16_Relaxed(Object, Value);
+}
+
+static uint16_t AK_Atomic_Exchange_U16_Acq_Rel(ak_atomic_u16* Object, uint16_t Value) {
+	AK_Atomic_Fence_Release();
+	uint16_t Result = AK_Atomic_Exchange_U16_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint16_t AK_Atomic_Exchange_U16_Seq_Cst(ak_atomic_u16* Object, uint16_t Value) {
+	return AK_Atomic_Exchange_U16_Acq_Rel(Object, Value);
+}
+
+static uint16_t AK_Atomic_Compare_Exchange_Strong_U16_Relaxed(ak_atomic_u16* Object, uint16_t OldValue, uint16_t NewValue) {
+	uint16_t Previous, Status;
+	__asm__ volatile(
+		"1:	ldrexh %0, [%3]\n"
+		"	cmp	   %0, %4\n"
+		"	bne    2f\n"
+		"	strexh %1, %5, [%3]\n"
+		"	cmp    %1, #0\n"
+		"	bne    1b\n"
+		"2:"
+		: "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic)
+	: "r" (Object), "Ir" (OldValue), "r" (NewValue)
+	: "cc");
+	return Previous;
+}
+
+static uint16_t AK_Atomic_Compare_Exchange_Strong_U16_Acquire(ak_atomic_u16* Object, uint16_t OldValue, uint16_t NewValue) {
+	uint16_t Result = AK_Atomic_Compare_Exchange_Strong_U16_Relaxed(Object, OldValue, NewValue);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint16_t AK_Atomic_Compare_Exchange_Strong_U16_Release(ak_atomic_u16* Object, uint16_t OldValue, uint16_t NewValue) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Compare_Exchange_Strong_U16_Relaxed(Object, OldValue, NewValue);
+}
+
+static uint16_t AK_Atomic_Compare_Exchange_Strong_U16_Acq_Rel(ak_atomic_u16* Object, uint16_t OldValue, uint16_t NewValue) {
+	AK_Atomic_Fence_Release();
+	uint16_t Result = AK_Atomic_Compare_Exchange_Strong_U16_Relaxed(Object, OldValue, NewValue);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint16_t AK_Atomic_Compare_Exchange_Strong_U16_Seq_Cst(ak_atomic_u16* Object, uint16_t OldValue, uint16_t NewValue) {
+	return AK_Atomic_Compare_Exchange_Strong_U16_Acq_Rel(Object, OldValue, NewValue);
+}
+
+static uint16_t AK_Atomic_Compare_Exchange_Weak_U16_Relaxed(ak_atomic_u16* Object, uint16_t OldValue, uint16_t NewValue) {
+	uint16_t Previous, Status;
+	__asm__ volatile(
+		"1:	ldrexh %0, [%3]\n"
+		"	cmp	   %0, %4\n"
+		"	bne    2f\n"
+		"	strexh %1, %5, [%3]\n"
+		"2:"
+		: "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic)
+	: "r" (Object), "Ir" (OldValue), "r" (NewValue)
+	: "cc");
+	return Previous;
+}
+
+static uint16_t AK_Atomic_Compare_Exchange_Weak_U16_Acquire(ak_atomic_u16* Object, uint16_t OldValue, uint16_t NewValue) {
+	uint16_t Result = AK_Atomic_Compare_Exchange_Weak_U16_Relaxed(Object, OldValue, NewValue);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint16_t AK_Atomic_Compare_Exchange_Weak_U16_Release(ak_atomic_u16* Object, uint16_t OldValue, uint16_t NewValue) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Compare_Exchange_Weak_U16_Relaxed(Object, OldValue, NewValue);
+}
+
+static uint16_t AK_Atomic_Compare_Exchange_Weak_U16_Acq_Rel(ak_atomic_u16* Object, uint16_t OldValue, uint16_t NewValue) {
+	AK_Atomic_Fence_Release();
+	uint16_t Result = AK_Atomic_Compare_Exchange_Weak_U16_Relaxed(Object, OldValue, NewValue);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint16_t AK_Atomic_Compare_Exchange_Weak_U16_Seq_Cst(ak_atomic_u16* Object, uint16_t OldValue, uint16_t NewValue) {
+	return AK_Atomic_Compare_Exchange_Weak_U16_Relaxed(Object, OldValue, NewValue);
+}
+
+static uint16_t AK_Atomic_Fetch_Add_U16_Relaxed(ak_atomic_u16* Object, uint16_t Value) {
+	uint16_t Previous, Temp, Status;
+	__asm__ volatile(
+		"1: ldrexh %0, [%4]\n"
+		"   add    %3, %0, %5\n"
+		"   strexh %1, %3, [%4]\n"
+		"   cmp    %1, #0\n"
+        "   bne    1b"
+		: "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic), "=&r" (Temp)
+	: "r" (Object), "r" (Value)
+	: "cc");
+    return Previous;
+}
+
+static uint16_t AK_Atomic_Fetch_Add_U16_Acquire(ak_atomic_u16* Object, uint16_t Value) {
+	uint16_t Result = AK_Atomic_Fetch_Add_U16_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint16_t AK_Atomic_Fetch_Add_U16_Release(ak_atomic_u16* Object, uint16_t Value) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Fetch_Add_U16_Relaxed(Object, Value);
+}
+
+static uint16_t AK_Atomic_Fetch_Add_U16_Acq_Rel(ak_atomic_u16* Object, uint16_t Value) {
+	AK_Atomic_Fence_Release();
+	uint16_t Result = AK_Atomic_Fetch_Add_U16_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint16_t AK_Atomic_Fetch_Add_U16_Seq_Cst(ak_atomic_u16* Object, uint16_t Value) {
+	return AK_Atomic_Fetch_Add_U16_Acq_Rel(Object, Value);
+}
+
+static uint16_t AK_Atomic_Fetch_Sub_U16_Relaxed(ak_atomic_u16* Object, uint16_t Value) {
+	uint16_t Previous, Temp, Status;
+	__asm__ volatile(
+		"1: ldrexh %0, [%4]\n"
+		"   sub    %3, %0, %5\n"
+		"   strexh %1, %3, [%4]\n"
+		"   cmp    %1, #0\n"
+        "   bne    1b"
+		: "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic), "=&r" (Temp)
+	: "r" (Object), "r" (Value)
+	: "cc");
+    return Previous;
+}
+
+static uint16_t AK_Atomic_Fetch_Sub_U16_Acquire(ak_atomic_u16* Object, uint16_t Value) {
+	uint16_t Result = AK_Atomic_Fetch_Sub_U16_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint16_t AK_Atomic_Fetch_Sub_U16_Release(ak_atomic_u16* Object, uint16_t Value) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Fetch_Sub_U16_Relaxed(Object, Value);
+}
+
+static uint16_t AK_Atomic_Fetch_Sub_U16_Acq_Rel(ak_atomic_u16* Object, uint16_t Value) {
+	AK_Atomic_Fence_Release();
+	uint16_t Result = AK_Atomic_Fetch_Sub_U16_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint16_t AK_Atomic_Fetch_Sub_U16_Seq_Cst(ak_atomic_u16* Object, uint16_t Value) {
+	return AK_Atomic_Fetch_Sub_U16_Acq_Rel(Object, Value);
+}
+
+static uint16_t AK_Atomic_Fetch_And_U16_Relaxed(ak_atomic_u16* Object, uint16_t Value) {
+	uint16_t Previous, Temp, Status;
+	__asm__ volatile(
+		"1: ldrexh %0, [%4]\n"
+		"   and    %3, %0, %5\n"
+		"   strexh %1, %3, [%4]\n"
+		"   cmp    %1, #0\n"
+        "   bne    1b"
+		: "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic), "=&r" (Temp)
+	: "r" (Object), "r" (Value)
+	: "cc");
+    return Previous;
+}
+
+static uint16_t AK_Atomic_Fetch_And_U16_Acquire(ak_atomic_u16* Object, uint16_t Value) {
+	uint16_t Result = AK_Atomic_Fetch_And_U16_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint16_t AK_Atomic_Fetch_And_U16_Release(ak_atomic_u16* Object, uint16_t Value) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Fetch_And_U16_Relaxed(Object, Value);
+}
+
+static uint16_t AK_Atomic_Fetch_And_U16_Acq_Rel(ak_atomic_u16* Object, uint16_t Value) {
+	AK_Atomic_Fence_Release();
+	uint16_t Result = AK_Atomic_Fetch_And_U16_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint16_t AK_Atomic_Fetch_And_U16_Seq_Cst(ak_atomic_u16* Object, uint16_t Value) {
+	return AK_Atomic_Fetch_And_U16_Acq_Rel(Object, Value);
+}
+
+static uint16_t AK_Atomic_Fetch_Or_U16_Relaxed(ak_atomic_u16* Object, uint16_t Value) {
+	uint16_t Previous, Temp, Status;
+	__asm__ volatile(
+		"1: ldrexh %0, [%4]\n"
+		"   orr    %3, %0, %5\n"
+		"   strexh %1, %3, [%4]\n"
+		"   cmp    %1, #0\n"
+        "   bne    1b"
+		: "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic), "=&r" (Temp)
+	: "r" (Object), "r" (Value)
+	: "cc");
+    return Previous;
+}
+
+static uint16_t AK_Atomic_Fetch_Or_U16_Acquire(ak_atomic_u16* Object, uint16_t Value) {
+	uint16_t Result = AK_Atomic_Fetch_Or_U16_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint16_t AK_Atomic_Fetch_Or_U16_Release(ak_atomic_u16* Object, uint16_t Value) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Fetch_Or_U16_Relaxed(Object, Value);
+}
+
+static uint16_t AK_Atomic_Fetch_Or_U16_Acq_Rel(ak_atomic_u16* Object, uint16_t Value) {
+	AK_Atomic_Fence_Release();
+	uint16_t Result = AK_Atomic_Fetch_Or_U16_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint16_t AK_Atomic_Fetch_Or_U16_Seq_Cst(ak_atomic_u16* Object, uint16_t Value) {
+	return AK_Atomic_Fetch_Or_U16_Acq_Rel(Object, Value);
+}
+
+static uint16_t AK_Atomic_Fetch_XOr_U16_Relaxed(ak_atomic_u16* Object, uint16_t Value) {
+	uint16_t Previous, Temp, Status;
+	__asm__ volatile(
+		"1: ldrexh %0, [%4]\n"
+		"   eor    %3, %0, %5\n"
+		"   strexh %1, %3, [%4]\n"
+		"   cmp    %1, #0\n"
+        "   bne    1b"
+		: "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic), "=&r" (Temp)
+	: "r" (Object), "r" (Value)
+	: "cc");
+    return Previous;
+}
+
+static uint16_t AK_Atomic_Fetch_XOr_U16_Acquire(ak_atomic_u16* Object, uint16_t Value) {
+	uint16_t Result = AK_Atomic_Fetch_XOr_U16_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint16_t AK_Atomic_Fetch_XOr_U16_Release(ak_atomic_u16* Object, uint16_t Value) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Fetch_XOr_U16_Relaxed(Object, Value);
+}
+
+static uint16_t AK_Atomic_Fetch_XOr_U16_Acq_Rel(ak_atomic_u16* Object, uint16_t Value) {
+	AK_Atomic_Fence_Release();
+	uint16_t Result = AK_Atomic_Fetch_XOr_U16_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint16_t AK_Atomic_Fetch_XOr_U16_Seq_Cst(ak_atomic_u16* Object, uint16_t Value) {
+	return AK_Atomic_Fetch_XOr_U16_Relaxed(Object, Value);
+}
+
+static uint16_t AK_Atomic_Increment_U16_Relaxed(ak_atomic_u16* Object) {
+	return AK_Atomic_Fetch_Add_U16_Relaxed(Object, 1) + 1;
+}
+
+static uint16_t AK_Atomic_Increment_U16_Release(ak_atomic_u16* Object) {
+	return AK_Atomic_Fetch_Add_U16_Release(Object, 1) + 1;
+}
+
+static uint16_t AK_Atomic_Increment_U16_Seq_Cst(ak_atomic_u16* Object) {
+	return AK_Atomic_Fetch_Add_U16_Seq_Cst(Object, 1) + 1;
+}
+
+static uint16_t AK_Atomic_Decrement_U16_Relaxed(ak_atomic_u16* Object) {
+	return AK_Atomic_Fetch_Sub_U16_Relaxed(Object, 1) - 1;
+}
+
+static uint16_t AK_Atomic_Decrement_U16_Release(ak_atomic_u16* Object) {
+	return AK_Atomic_Fetch_Sub_U16_Release(Object, 1) - 1;
+}
+
+static uint16_t AK_Atomic_Decrement_U16_Seq_Cst(ak_atomic_u16* Object) {
+	return AK_Atomic_Fetch_Sub_U16_Seq_Cst(Object, 1) - 1;
+}
+
+static uint32_t AK_Atomic_Load_U32_Relaxed(const ak_atomic_u32* Object) {
+	return Object->Nonatomic;
+}
+
+static uint32_t AK_Atomic_Load_U32_Acquire(const ak_atomic_u32* Object) {
+	uint32_t Result = Object->Nonatomic;
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint32_t AK_Atomic_Load_U32_Seq_Cst(const ak_atomic_u32* Object) {
+	return AK_Atomic_Load_U32_Acquire(Object);
+}
+
+static void AK_Atomic_Store_U32_Relaxed(ak_atomic_u32* Object, uint32_t Value) {
+	Object->Nonatomic = Value;
+}
+
+static void AK_Atomic_Store_U32_Release(ak_atomic_u32* Object, uint32_t Value) {
+	AK_Atomic_Fence_Release();
+	AK_Atomic_Store_U32_Relaxed(Object, Value);
+}
+
+static void AK_Atomic_Store_U32_Seq_Cst(ak_atomic_u32* Object, uint32_t Value) {
+	AK_Atomic_Store_U32_Release(Object, Value);
+	AK_Atomic_Fence_Seq_Cst();
+}
+
+static uint32_t AK_Atomic_Exchange_U32_Relaxed(ak_atomic_u32* Object, uint32_t Value) {
+	uint32_t Previous, Status;
+	__asm__ volatile(
+		"1:	ldrex %0, [%3]\n"
+		"	strex %1, %4, [%3]\n"
+		"	cmp	  %1, #0\n"
+		"	bne	  1b"
+		: "=&r" (Previous), "=&r" (Status), "+Q" (Object->Nonatomic)
+		: "r" (Object), "r" (Value)
+		: "cc");
+	return Previous;
+}
+
+static uint32_t AK_Atomic_Exchange_U32_Acquire(ak_atomic_u32* Object, uint32_t Value) {
+	uint32_t Result = AK_Atomic_Exchange_U32_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint32_t AK_Atomic_Exchange_U32_Release(ak_atomic_u32* Object, uint32_t Value) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Exchange_U32_Relaxed(Object, Value);
+}
+
+static uint32_t AK_Atomic_Exchange_U32_Acq_Rel(ak_atomic_u32* Object, uint32_t Value) {
+	AK_Atomic_Fence_Release();
+	uint32_t Result = AK_Atomic_Exchange_U32_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint32_t AK_Atomic_Exchange_U32_Seq_Cst(ak_atomic_u32* Object, uint32_t Value) {
+	return AK_Atomic_Exchange_U32_Acq_Rel(Object, Value);
+}
+
+static uint32_t AK_Atomic_Compare_Exchange_Strong_U32_Relaxed(ak_atomic_u32* Object, uint32_t OldValue, uint32_t NewValue) {
+	uint32_t Previous, Status;
+	__asm__ volatile(
+		"1:	ldrex %0, [%3]\n"
+		"	cmp	  %0, %4\n"
+		"	bne   2f\n"
+		"	strex %1, %5, [%3]\n"
+		"	cmp   %1, #0\n"
+		"	bne   1b\n"
+		"2:"
+		: "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic)
+		: "r" (Object), "Ir" (OldValue), "r" (NewValue)
+		: "cc");
+	return Previous;
+}
+
+static uint32_t AK_Atomic_Compare_Exchange_Strong_U32_Acquire(ak_atomic_u32* Object, uint32_t OldValue, uint32_t NewValue) {
+	uint32_t Result = AK_Atomic_Compare_Exchange_Strong_U32_Relaxed(Object, OldValue, NewValue);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint32_t AK_Atomic_Compare_Exchange_Strong_U32_Release(ak_atomic_u32* Object, uint32_t OldValue, uint32_t NewValue) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Compare_Exchange_Strong_U32_Relaxed(Object, OldValue, NewValue);
+}
+
+static uint32_t AK_Atomic_Compare_Exchange_Strong_U32_Acq_Rel(ak_atomic_u32* Object, uint32_t OldValue, uint32_t NewValue) {
+	AK_Atomic_Fence_Release();
+	uint32_t Result = AK_Atomic_Compare_Exchange_Strong_U32_Relaxed(Object, OldValue, NewValue);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint32_t AK_Atomic_Compare_Exchange_Strong_U32_Seq_Cst(ak_atomic_u32* Object, uint32_t OldValue, uint32_t NewValue) {
+	return AK_Atomic_Compare_Exchange_Strong_U32_Acq_Rel(Object, OldValue, NewValue);
+}
+
+static uint32_t AK_Atomic_Compare_Exchange_Weak_U32_Relaxed(ak_atomic_u32* Object, uint32_t OldValue, uint32_t NewValue) {
+	uint32_t Previous, Status;
+	__asm__ volatile(
+		"1:	ldrex %0, [%3]\n"
+		"	cmp	  %0, %4\n"
+		"	bne   2f\n"
+		"	strex %1, %5, [%3]\n"
+		"2:"
+		: "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic)
+		: "r" (Object), "Ir" (OldValue), "r" (NewValue)
+		: "cc");
+	return Previous;
+}
+
+static uint32_t AK_Atomic_Compare_Exchange_Weak_U32_Acquire(ak_atomic_u32* Object, uint32_t OldValue, uint32_t NewValue) {
+	uint32_t Result = AK_Atomic_Compare_Exchange_Weak_U32_Relaxed(Object, OldValue, NewValue);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint32_t AK_Atomic_Compare_Exchange_Weak_U32_Release(ak_atomic_u32* Object, uint32_t OldValue, uint32_t NewValue) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Compare_Exchange_Weak_U32_Relaxed(Object, OldValue, NewValue);
+}
+
+static uint32_t AK_Atomic_Compare_Exchange_Weak_U32_Acq_Rel(ak_atomic_u32* Object, uint32_t OldValue, uint32_t NewValue) {
+	AK_Atomic_Fence_Release();
+	uint32_t Result = AK_Atomic_Compare_Exchange_Weak_U32_Relaxed(Object, OldValue, NewValue);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint32_t AK_Atomic_Compare_Exchange_Weak_U32_Seq_Cst(ak_atomic_u32* Object, uint32_t OldValue, uint32_t NewValue) {
+	return AK_Atomic_Compare_Exchange_Weak_U32_Relaxed(Object, OldValue, NewValue);
+}
+
+static uint32_t AK_Atomic_Fetch_Add_U32_Relaxed(ak_atomic_u32* Object, uint32_t Value) {
+	uint32_t Previous, Temp, Status;
+	__asm__ volatile(
+		"1: ldrex %0, [%4]\n"
+		"   add   %3, %0, %5\n"
+		"   strex %1, %3, [%4]\n"
+		"   cmp   %1, #0\n"
+        "   bne   1b"
+		: "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic), "=&r" (Temp)
+		: "r" (Object), "r" (Value)
+		: "cc");
+    return Previous;
+}
+
+static uint32_t AK_Atomic_Fetch_Add_U32_Acquire(ak_atomic_u32* Object, uint32_t Value) {
+	uint32_t Result = AK_Atomic_Fetch_Add_U32_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint32_t AK_Atomic_Fetch_Add_U32_Release(ak_atomic_u32* Object, uint32_t Value) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Fetch_Add_U32_Relaxed(Object, Value);
+}
+
+static uint32_t AK_Atomic_Fetch_Add_U32_Acq_Rel(ak_atomic_u32* Object, uint32_t Value) {
+	AK_Atomic_Fence_Release();
+	uint32_t Result = AK_Atomic_Fetch_Add_U32_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint32_t AK_Atomic_Fetch_Add_U32_Seq_Cst(ak_atomic_u32* Object, uint32_t Value) {
+	return AK_Atomic_Fetch_Add_U32_Acq_Rel(Object, Value);
+}
+
+static uint32_t AK_Atomic_Fetch_Sub_U32_Relaxed(ak_atomic_u32* Object, uint32_t Value) {
+	uint32_t Previous, Temp, Status;
+	__asm__ volatile(
+		"1: ldrex %0, [%4]\n"
+		"   sub   %3, %0, %5\n"
+		"   strex %1, %3, [%4]\n"
+		"   cmp   %1, #0\n"
+        "   bne   1b"
+		: "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic), "=&r" (Temp)
+	: "r" (Object), "r" (Value)
+	: "cc");
+    return Previous;
+}
+
+static uint32_t AK_Atomic_Fetch_Sub_U32_Acquire(ak_atomic_u32* Object, uint32_t Value) {
+	uint32_t Result = AK_Atomic_Fetch_Sub_U32_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint32_t AK_Atomic_Fetch_Sub_U32_Release(ak_atomic_u32* Object, uint32_t Value) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Fetch_Sub_U32_Relaxed(Object, Value);
+}
+
+static uint32_t AK_Atomic_Fetch_Sub_U32_Acq_Rel(ak_atomic_u32* Object, uint32_t Value) {
+	AK_Atomic_Fence_Release();
+	uint32_t Result = AK_Atomic_Fetch_Sub_U32_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint32_t AK_Atomic_Fetch_Sub_U32_Seq_Cst(ak_atomic_u32* Object, uint32_t Value) {
+	return AK_Atomic_Fetch_Sub_U32_Acq_Rel(Object, Value);
+}
+
+static uint32_t AK_Atomic_Fetch_And_U32_Relaxed(ak_atomic_u32* Object, uint32_t Value) {
+	uint32_t Previous, Temp, Status;
+	__asm__ volatile(
+		"1: ldrex %0, [%4]\n"
+		"   and   %3, %0, %5\n"
+		"   strex %1, %3, [%4]\n"
+		"   cmp   %1, #0\n"
+        "   bne   1b"
+		: "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic), "=&r" (Temp)
+	: "r" (Object), "r" (Value)
+	: "cc");
+    return Previous;
+}
+
+static uint32_t AK_Atomic_Fetch_And_U32_Acquire(ak_atomic_u32* Object, uint32_t Value) {
+	uint32_t Result = AK_Atomic_Fetch_And_U32_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint32_t AK_Atomic_Fetch_And_U32_Release(ak_atomic_u32* Object, uint32_t Value) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Fetch_And_U32_Relaxed(Object, Value);
+}
+
+static uint32_t AK_Atomic_Fetch_And_U32_Acq_Rel(ak_atomic_u32* Object, uint32_t Value) {
+	AK_Atomic_Fence_Release();
+	uint32_t Result = AK_Atomic_Fetch_And_U32_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint32_t AK_Atomic_Fetch_And_U32_Seq_Cst(ak_atomic_u32* Object, uint32_t Value) {
+	return AK_Atomic_Fetch_And_U32_Acq_Rel(Object, Value);
+}
+
+static uint32_t AK_Atomic_Fetch_Or_U32_Relaxed(ak_atomic_u32* Object, uint32_t Value) {
+	uint32_t Previous, Temp, Status;
+	__asm__ volatile(
+		"1: ldrex %0, [%4]\n"
+		"   orr   %3, %0, %5\n"
+		"   strex %1, %3, [%4]\n"
+		"   cmp   %1, #0\n"
+        "   bne   1b"
+		: "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic), "=&r" (Temp)
+	: "r" (Object), "r" (Value)
+	: "cc");
+    return Previous;
+}
+
+static uint32_t AK_Atomic_Fetch_Or_U32_Acquire(ak_atomic_u32* Object, uint32_t Value) {
+	uint32_t Result = AK_Atomic_Fetch_Or_U32_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint32_t AK_Atomic_Fetch_Or_U32_Release(ak_atomic_u32* Object, uint32_t Value) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Fetch_Or_U32_Relaxed(Object, Value);
+}
+
+static uint32_t AK_Atomic_Fetch_Or_U32_Acq_Rel(ak_atomic_u32* Object, uint32_t Value) {
+	AK_Atomic_Fence_Release();
+	uint32_t Result = AK_Atomic_Fetch_Or_U32_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint32_t AK_Atomic_Fetch_Or_U32_Seq_Cst(ak_atomic_u32* Object, uint32_t Value) {
+	return AK_Atomic_Fetch_Or_U32_Acq_Rel(Object, Value);
+}
+
+static uint32_t AK_Atomic_Fetch_XOr_U32_Relaxed(ak_atomic_u32* Object, uint32_t Value) {
+	uint32_t Previous, Temp, Status;
+	__asm__ volatile(
+		"1: ldrex %0, [%4]\n"
+		"   eor   %3, %0, %5\n"
+		"   strex %1, %3, [%4]\n"
+		"   cmp   %1, #0\n"
+        "   bne   1b"
+		: "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic), "=&r" (Temp)
+	: "r" (Object), "r" (Value)
+	: "cc");
+    return Previous;
+}
+
+static uint32_t AK_Atomic_Fetch_XOr_U32_Acquire(ak_atomic_u32* Object, uint32_t Value) {
+	uint32_t Result = AK_Atomic_Fetch_XOr_U32_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint32_t AK_Atomic_Fetch_XOr_U32_Release(ak_atomic_u32* Object, uint32_t Value) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Fetch_XOr_U32_Relaxed(Object, Value);
+}
+
+static uint32_t AK_Atomic_Fetch_XOr_U32_Acq_Rel(ak_atomic_u32* Object, uint32_t Value) {
+	AK_Atomic_Fence_Release();
+	uint32_t Result = AK_Atomic_Fetch_XOr_U32_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint32_t AK_Atomic_Fetch_XOr_U32_Seq_Cst(ak_atomic_u32* Object, uint32_t Value) {
+	return AK_Atomic_Fetch_XOr_U32_Relaxed(Object, Value);
+}
+
+static uint32_t AK_Atomic_Increment_U32_Relaxed(ak_atomic_u32* Object) {
+	return AK_Atomic_Fetch_Add_U32_Relaxed(Object, 1) + 1;
+}
+
+static uint32_t AK_Atomic_Increment_U32_Release(ak_atomic_u32* Object) {
+	return AK_Atomic_Fetch_Add_U32_Release(Object, 1) + 1;
+}
+
+static uint32_t AK_Atomic_Increment_U32_Seq_Cst(ak_atomic_u32* Object) {
+	return AK_Atomic_Fetch_Add_U32_Seq_Cst(Object, 1) + 1;
+}
+
+static uint32_t AK_Atomic_Decrement_U32_Relaxed(ak_atomic_u32* Object) {
+	return AK_Atomic_Fetch_Sub_U32_Relaxed(Object, 1) - 1;
+}
+
+static uint32_t AK_Atomic_Decrement_U32_Release(ak_atomic_u32* Object) {
+	return AK_Atomic_Fetch_Sub_U32_Release(Object, 1) - 1;
+}
+
+static uint32_t AK_Atomic_Decrement_U32_Seq_Cst(ak_atomic_u32* Object) {
+	return AK_Atomic_Fetch_Sub_U32_Seq_Cst(Object, 1) - 1;
+}
+
+static uint64_t AK_Atomic_Load_U64_Relaxed(const ak_atomic_u64* Object) {
+	uint64_t Result;
+    __asm__ volatile(
+		"1: ldrexd %0, %H0, %1"
+        : "=r" (Result)
+		: "Qo" (Object->Nonatomic)
+    );
+	return Result;
+}
+
+static uint64_t AK_Atomic_Load_U64_Acquire(const ak_atomic_u64* Object) {
+	uint64_t Result = AK_Atomic_Load_U64_Relaxed(Object);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint64_t AK_Atomic_Load_U64_Seq_Cst(const ak_atomic_u64* Object) {
+	return AK_Atomic_Load_U64_Acquire(Object);
+}
+
+static void AK_Atomic_Store_U64_Relaxed(ak_atomic_u64* Object, uint64_t Value) {
+	uint64_t Status;
+	__asm__ volatile(
+		"1:	ldrexd %0, %H0, %1\n"
+		"	strexd %0, %2, %H2, %1\n"
+		"	cmp    %0, #0\n"
+		"	bne	   1b"
+		: "=&r" (Status), "=Qo" (Object->Nonatomic)
+		: "r" (Value)
+		: "cc"
+	);
+}
+
+static void AK_Atomic_Store_U64_Release(ak_atomic_u64* Object, uint64_t Value) {
+	AK_Atomic_Fence_Release();
+	AK_Atomic_Store_U64_Relaxed(Object, Value);
+}
+
+static void AK_Atomic_Store_U64_Seq_Cst(ak_atomic_u64* Object, uint64_t Value) {
+	AK_Atomic_Store_U64_Release(Object, Value);
+}
+
+static uint64_t AK_Atomic_Exchange_U64_Relaxed(ak_atomic_u64* Object, uint64_t Value) {
+	uint64_t Result, Status;
+	__asm__ volatile(
+		"1:	ldrexd %0, %H0, %2\n"
+		"	strexd %1, %3, %H3, %2\n"
+		"	cmp    %1, #0\n"
+		"	bne	   1b"
+		: "=&r" (Result), "=&r" (Status), "=Qo" (Object->Nonatomic)
+		: "r" (Value)
+		: "cc"
+	);
+	return Result;
+}
+
+static uint64_t AK_Atomic_Exchange_U64_Acquire(ak_atomic_u64* Object, uint64_t Value) {
+	uint64_t Result = AK_Atomic_Exchange_U64_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint64_t AK_Atomic_Exchange_U64_Release(ak_atomic_u64* Object, uint64_t Value) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Exchange_U64_Relaxed(Object, Value);
+}
+
+static uint64_t AK_Atomic_Exchange_U64_Acq_Rel(ak_atomic_u64* Object, uint64_t Value) {
+	AK_Atomic_Fence_Release();
+	uint64_t Result = AK_Atomic_Exchange_U64_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint64_t AK_Atomic_Exchange_U64_Seq_Cst(ak_atomic_u64* Object, uint64_t Value) {
+	return AK_Atomic_Exchange_U64_Acq_Rel(Object, Value);
+}
+
+static uint64_t AK_Atomic_Compare_Exchange_Strong_U64_Relaxed(ak_atomic_u64* Object, uint64_t OldValue, uint64_t NewValue) {
+	uint64_t Previous, Status;
+	__asm__ volatile(
+		"1:	ldrexd %0, %H0, %2\n"
+		"	cmp	   %0, %3\n"
+		"	bne    2f\n"
+		"	strexd %1, %4, %H4, %2\n"
+		"	cmp    %1, #0\n"
+		"	bne    1b\n"
+		"2:"
+		: "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic)
+		: "Ir" (OldValue), "r" (NewValue)
+		: "cc");
+	return Previous;	
+}
+
+static uint64_t AK_Atomic_Compare_Exchange_Strong_U64_Acquire(ak_atomic_u64* Object, uint64_t OldValue, uint64_t NewValue) {
+	uint64_t Result = AK_Atomic_Compare_Exchange_Strong_U64_Relaxed(Object, OldValue, NewValue);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint64_t AK_Atomic_Compare_Exchange_Strong_U64_Release(ak_atomic_u64* Object, uint64_t OldValue, uint64_t NewValue) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Compare_Exchange_Strong_U64_Relaxed(Object, OldValue, NewValue);
+}
+
+static uint64_t AK_Atomic_Compare_Exchange_Strong_U64_Acq_Rel(ak_atomic_u64* Object, uint64_t OldValue, uint64_t NewValue) {
+	AK_Atomic_Fence_Release();
+	uint64_t Result = AK_Atomic_Compare_Exchange_Strong_U64_Relaxed(Object, OldValue, NewValue);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint64_t AK_Atomic_Compare_Exchange_Strong_U64_Seq_Cst(ak_atomic_u64* Object, uint64_t OldValue, uint64_t NewValue) {
+	return AK_Atomic_Compare_Exchange_Strong_U64_Acq_Rel(Object, OldValue, NewValue);
+}
+
+static uint64_t AK_Atomic_Compare_Exchange_Weak_U64_Relaxed(ak_atomic_u64* Object, uint64_t OldValue, uint64_t NewValue) {
+	uint64_t Previous, Status;
+	__asm__ volatile(
+		"1:	ldrexd %0, %H0, %2\n"
+		"	cmp	   %0, %3\n"
+		"	bne    2f\n"
+		"	strexd %1, %4, %H4, %2\n"
+		"2:"
+		: "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic)
+		: "Ir" (OldValue), "r" (NewValue)
+		: "cc");
+	return Previous;	
+}
+
+static uint64_t AK_Atomic_Compare_Exchange_Weak_U64_Acquire(ak_atomic_u64* Object, uint64_t OldValue, uint64_t NewValue) {
+	uint64_t Result = AK_Atomic_Compare_Exchange_Weak_U64_Relaxed(Object, OldValue, NewValue);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint64_t AK_Atomic_Compare_Exchange_Weak_U64_Release(ak_atomic_u64* Object, uint64_t OldValue, uint64_t NewValue) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Compare_Exchange_Weak_U64_Relaxed(Object, OldValue, NewValue);
+}
+
+static uint64_t AK_Atomic_Compare_Exchange_Weak_U64_Acq_Rel(ak_atomic_u64* Object, uint64_t OldValue, uint64_t NewValue) {
+	AK_Atomic_Fence_Release();
+	uint64_t Result = AK_Atomic_Compare_Exchange_Weak_U64_Relaxed(Object, OldValue, NewValue);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint64_t AK_Atomic_Compare_Exchange_Weak_U64_Seq_Cst(ak_atomic_u64* Object, uint64_t OldValue, uint64_t NewValue) {
+	return AK_Atomic_Compare_Exchange_Weak_U64_Acq_Rel(Object, OldValue, NewValue);
+}
+
+static uint64_t AK_Atomic_Fetch_Add_U64_Relaxed(ak_atomic_u64* Object, uint64_t Value) {
+	uint64_t Previous, Status, Temp;
+	__asm__ volatile(
+		"1:	ldrexd %0, %H0, %2\n"
+		"	adds   %3, %0, %4\n"
+		"	adc    %H3, %H0, %H4\n"
+		"	strexd %1, %3, %H3, %2\n"
+		"	cmp    %1, #0\n"
+		"	bne    1b\n"
+		: "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic), "=&r" (Temp)
+		: "r" (Value)
+		: "cc");
+	return Previous;	
+}
+
+static uint64_t AK_Atomic_Fetch_Add_U64_Acquire(ak_atomic_u64* Object, uint64_t Value) {
+	uint64_t Result = AK_Atomic_Fetch_Add_U64_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint64_t AK_Atomic_Fetch_Add_U64_Release(ak_atomic_u64* Object, uint64_t Value) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Fetch_Add_U64_Relaxed(Object, Value);
+}
+
+static uint64_t AK_Atomic_Fetch_Add_U64_Acq_Rel(ak_atomic_u64* Object, uint64_t Value) {
+	AK_Atomic_Fence_Release();
+	uint64_t Result = AK_Atomic_Fetch_Add_U64_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint64_t AK_Atomic_Fetch_Add_U64_Seq_Cst(ak_atomic_u64* Object, uint64_t Value) {
+	return AK_Atomic_Fetch_Add_U64_Acq_Rel(Object, Value);
+}
+
+static uint64_t AK_Atomic_Fetch_Sub_U64_Relaxed(ak_atomic_u64* Object, uint64_t Value) {
+	uint64_t Previous, Status, Temp;
+	__asm__ volatile(
+		"1:	ldrexd %0, %H0, %2\n"
+		"	subs   %3, %0, %4\n"
+		"	sbc    %H3, %H0, %H4\n"
+		"	strexd %1, %3, %H3, %2\n"
+		"	cmp    %1, #0\n"
+		"	bne    1b\n"
+		: "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic), "=&r" (Temp)
+		: "r" (Value)
+		: "cc");
+	return Previous;	
+}
+
+static uint64_t AK_Atomic_Fetch_Sub_U64_Acquire(ak_atomic_u64* Object, uint64_t Value) {
+	uint64_t Result = AK_Atomic_Fetch_Sub_U64_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint64_t AK_Atomic_Fetch_Sub_U64_Release(ak_atomic_u64* Object, uint64_t Value) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Fetch_Sub_U64_Relaxed(Object, Value);
+}
+
+static uint64_t AK_Atomic_Fetch_Sub_U64_Acq_Rel(ak_atomic_u64* Object, uint64_t Value) {
+	AK_Atomic_Fence_Release();
+	uint64_t Result = AK_Atomic_Fetch_Sub_U64_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint64_t AK_Atomic_Fetch_Sub_U64_Seq_Cst(ak_atomic_u64* Object, uint64_t Value) {
+	return AK_Atomic_Fetch_Sub_U64_Acq_Rel(Object, Value);
+}
+
+static uint64_t AK_Atomic_Fetch_And_U64_Relaxed(ak_atomic_u64* Object, uint64_t Value) {
+	uint64_t Previous, Status, Temp;
+	__asm__ volatile(
+		"1:	ldrexd %0, %H0, %2\n"
+		"	and    %3, %0, %4\n"
+		"	and    %H3, %H0, %H4\n"
+		"	strexd %1, %3, %H3, %2\n"
+		"	cmp    %1, #0\n"
+		"	bne    1b\n"
+		: "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic), "=&r" (Temp)
+		: "r" (Value)
+		: "cc");
+	return Previous;	
+}
+
+static uint64_t AK_Atomic_Fetch_And_U64_Acquire(ak_atomic_u64* Object, uint64_t Value) {
+	uint64_t Result = AK_Atomic_Fetch_And_U64_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint64_t AK_Atomic_Fetch_And_U64_Release(ak_atomic_u64* Object, uint64_t Value) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Fetch_And_U64_Relaxed(Object, Value);
+}
+
+static uint64_t AK_Atomic_Fetch_And_U64_Acq_Rel(ak_atomic_u64* Object, uint64_t Value) {
+	AK_Atomic_Fence_Release();
+	uint64_t Result = AK_Atomic_Fetch_And_U64_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint64_t AK_Atomic_Fetch_And_U64_Seq_Cst(ak_atomic_u64* Object, uint64_t Value) {
+	return AK_Atomic_Fetch_And_U64_Acq_Rel(Object, Value);
+}
+
+static uint64_t AK_Atomic_Fetch_Or_U64_Relaxed(ak_atomic_u64* Object, uint64_t Value) {
+	uint64_t Previous, Status, Temp;
+	__asm__ volatile(
+		"1:	ldrexd %0, %H0, %2\n"
+		"	orr    %3, %0, %4\n"
+		"	orr    %H3, %H0, %H4\n"
+		"	strexd %1, %3, %H3, %2\n"
+		"	cmp    %1, #0\n"
+		"	bne    1b\n"
+		: "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic), "=&r" (Temp)
+		: "r" (Value)
+		: "cc");
+	return Previous;	
+}
+
+static uint64_t AK_Atomic_Fetch_Or_U64_Acquire(ak_atomic_u64* Object, uint64_t Value) {
+	uint64_t Result = AK_Atomic_Fetch_Or_U64_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint64_t AK_Atomic_Fetch_Or_U64_Release(ak_atomic_u64* Object, uint64_t Value) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Fetch_Or_U64_Relaxed(Object, Value);
+}
+
+static uint64_t AK_Atomic_Fetch_Or_U64_Acq_Rel(ak_atomic_u64* Object, uint64_t Value) {
+	AK_Atomic_Fence_Release();
+	uint64_t Result = AK_Atomic_Fetch_Or_U64_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint64_t AK_Atomic_Fetch_Or_U64_Seq_Cst(ak_atomic_u64* Object, uint64_t Value) {
+	return AK_Atomic_Fetch_Or_U64_Acq_Rel(Object, Value);
+}
+
+static uint64_t AK_Atomic_Fetch_XOr_U64_Relaxed(ak_atomic_u64* Object, uint64_t Value) {
+	uint64_t Previous, Status, Temp;
+	__asm__ volatile(
+		"1:	ldrexd %0, %H0, %2\n"
+		"	eor    %3, %0, %4\n"
+		"	eor    %H3, %H0, %H4\n"
+		"	strexd %1, %3, %H3, %2\n"
+		"	cmp    %1, #0\n"
+		"	bne    1b\n"
+		: "=&r" (Previous), "=&r" (Status), "+Qo"(Object->Nonatomic), "=&r" (Temp)
+		: "r" (Value)
+		: "cc");
+	return Previous;	
+}
+
+static uint64_t AK_Atomic_Fetch_XOr_U64_Acquire(ak_atomic_u64* Object, uint64_t Value) {
+	uint64_t Result = AK_Atomic_Fetch_XOr_U64_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint64_t AK_Atomic_Fetch_XOr_U64_Release(ak_atomic_u64* Object, uint64_t Value) {
+	AK_Atomic_Fence_Release();
+	return AK_Atomic_Fetch_XOr_U64_Relaxed(Object, Value);
+}
+
+static uint64_t AK_Atomic_Fetch_XOr_U64_Acq_Rel(ak_atomic_u64* Object, uint64_t Value) {
+	AK_Atomic_Fence_Release();
+	uint64_t Result = AK_Atomic_Fetch_XOr_U64_Relaxed(Object, Value);
+	AK_Atomic_Fence_Acquire();
+	return Result;
+}
+
+static uint64_t AK_Atomic_Fetch_XOr_U64_Seq_Cst(ak_atomic_u64* Object, uint64_t Value) {
+	return AK_Atomic_Fetch_XOr_U64_Acq_Rel(Object, Value);
+}
+
+static uint64_t AK_Atomic_Increment_U64_Relaxed(ak_atomic_u64* Object) {
+	return AK_Atomic_Fetch_Add_U64_Relaxed(Object, 1) + 1;
+}
+
+static uint64_t AK_Atomic_Increment_U64_Release(ak_atomic_u64* Object) {
+	return AK_Atomic_Fetch_Add_U64_Release(Object, 1) + 1;
+}
+
+static uint64_t AK_Atomic_Increment_U64_Seq_Cst(ak_atomic_u64* Object) {
+	return AK_Atomic_Fetch_Add_U64_Seq_Cst(Object, 1) + 1;
+}
+
+static uint64_t AK_Atomic_Decrement_U64_Relaxed(ak_atomic_u64* Object) {
+	return AK_Atomic_Fetch_Sub_U64_Relaxed(Object, 1) - 1;
+}
+
+static uint64_t AK_Atomic_Decrement_U64_Release(ak_atomic_u64* Object) {
+	return AK_Atomic_Fetch_Sub_U64_Release(Object, 1) - 1;
+}
+
+static uint64_t AK_Atomic_Decrement_U64_Seq_Cst(ak_atomic_u64* Object) {
+	return AK_Atomic_Fetch_Sub_U64_Seq_Cst(Object, 1) - 1;
+}
 
 #elif defined(AK_ATOMIC_COMPILER_GCC) && (defined(AK_ATOMIC_CPU_X86) || defined(AK_ATOMIC_CPU_X64))
 
@@ -6711,7 +8110,7 @@ static uint64_t AK_Atomic_Fetch_Add_U64_Relaxed(ak_atomic_u64* Object, uint64_t 
 		"	adc %%edx, %%ecx\n"
 		"	lock; cmpxchg8b %1\n"
 		"	jne 1b"
-		: "+A" (Result), "+m" (Object->Nonatomic)
+		: "=A" (Result), "=m" (Object->Nonatomic)
 		: "r"((uint32_t)Value), "r" ((uint32_t)(Value >> 32))
         : "%ebx", "%ecx"
     );
@@ -6763,7 +8162,7 @@ static uint64_t AK_Atomic_Fetch_And_U64_Relaxed(ak_atomic_u64* Object, uint64_t 
 		"	and %%edx, %%ecx\n"
 		"	lock; cmpxchg8b %1\n"
 		"	jne 1b"
-		: "+A" (Result), "+m" (Object->Nonatomic)
+		: "=A" (Result), "=m" (Object->Nonatomic)
 		: "r"((uint32_t)Value), "r" ((uint32_t)(Value >> 32))
 		: "%ebx", "%ecx"
 	);
@@ -6795,7 +8194,7 @@ static uint64_t AK_Atomic_Fetch_Or_U64_Relaxed(ak_atomic_u64* Object, uint64_t V
 		"	or %%edx, %%ecx\n"
 		"	lock; cmpxchg8b %1\n"
 		"	jne 1b"
-		: "+A" (Result), "+m" (Object->Nonatomic)
+		: "=A" (Result), "=m" (Object->Nonatomic)
 		: "r"((uint32_t)Value), "r" ((uint32_t)(Value >> 32))
 		: "%ebx", "%ecx"
 	);
@@ -6827,7 +8226,7 @@ static uint64_t AK_Atomic_Fetch_XOr_U64_Relaxed(ak_atomic_u64* Object, uint64_t 
 		"	xor %%edx, %%ecx\n"
 		"	lock; cmpxchg8b %1\n"
 		"	jne 1b"
-		: "+A" (Result), "+m" (Object->Nonatomic)
+		: "=A" (Result), "=m" (Object->Nonatomic)
 		: "r"((uint32_t)Value), "r" ((uint32_t)(Value >> 32))
 		: "%ebx", "%ecx"
 	);
