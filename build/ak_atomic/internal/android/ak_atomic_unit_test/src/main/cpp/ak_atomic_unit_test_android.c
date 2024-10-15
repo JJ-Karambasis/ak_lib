@@ -55,13 +55,12 @@ static void* Android_Thread_Func(void* Parameter)
     while((rdsz = read(pfd[0], buf, sizeof buf - 1)) > 0) {
         if(buf[rdsz - 1] == '\n') --rdsz;
         buf[rdsz] = 0;  /* add null-terminator */
-        __android_log_write(ANDROID_LOG_DEBUG, "stdout", buf);
+        __android_log_write(ANDROID_LOG_DEBUG, "Custom", buf);
     }
     return 0;
 }
 
 void android_main(struct android_app* App) {
-
 	//Need to route stdout requests to the android logger
 	// make stdout line-buffered and stderr unbuffered */
     setvbuf(stdout, 0, _IOLBF, 0);
@@ -91,7 +90,7 @@ void android_main(struct android_app* App) {
 		if (TestContext.IsReady && !TestContext.IsFinished) {
 			const char* Filters[] = {
                 "",
-                "--filter=AK_Job_System.DependencyTest"
+                "--filter="
             };
 			
 			utest_main(0, Filters);

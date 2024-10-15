@@ -123,7 +123,7 @@ if "%msvc%"=="1" (
 	set compile_output[!i!]=ak_atomic_cpp17_unit_test.exe
 	set /a i=i+1
 
-	set compile_tests[!i!]=/std:c++20 /Zc:__cplusplus /D_HAS_EXCEPTIONS=0 %test_path%\ak_atomic_unit_test.cpp
+	set compile_tests[!i!]=/std:c++20 /Z  c:__cplusplus /D_HAS_EXCEPTIONS=0 %test_path%\ak_atomic_unit_test.cpp
 	set compile_output[!i!]=ak_atomic_cpp20_unit_test.exe
 	set /a i=i+1
 )

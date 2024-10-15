@@ -40,4 +40,4 @@ if %is_android_build% == 1 (
 	exit /b 0
 )
 
-call %build_path%/internal/build_desktop.bat %compiler% %arch% %build_mode%
+call %build_path%/internal/build_desktop.bat %compiler% %build_mode% %arch% 

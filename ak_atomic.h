@@ -38,7 +38,7 @@
 		#define AK_ATOMIC_CPU_AARCH64
 		#define AK_ATOMIC_PTR_SIZE 8
 
-		#if defined(__ARM64_ARCH_8__)
+		#if defined(__ARM64_ARCH_8__) || (defined(__ARM_ARCH) && __ARM_ARCH == 8)
 			// ARMv8
 			#define AK_ATOMIC_ARM_VERSION 8
 		#else
@@ -1622,7 +1622,7 @@ static uint8_t AK_Atomic_Decrement_U8_Seq_Cst(ak_atomic_u8* Object) {
 static uint16_t AK_Atomic_Load_U16_Relaxed(const ak_atomic_u16* Object) {
 	return Object->Nonatomic;
 }
-MSVC
+
 static uint16_t AK_Atomic_Load_U16_Acquire(const ak_atomic_u16* Object) {
 	uint16_t Result = Object->Nonatomic;
 	_ReadWriteBarrier();
@@ -1794,7 +1794,7 @@ static uint16_t AK_Atomic_Fetch_XOr_U16_Relaxed(ak_atomic_u16* Object, uint16_t 
 
 static uint16_t AK_Atomic_Fetch_XOr_U16_Acquire(ak_atomic_u16* Object, uint16_t Value) {
 	return AK_Atomic_Fetch_XOr_U16_Relaxed(Object, Value);
-}MSVC
+}
 
 static uint16_t AK_Atomic_Fetch_XOr_U16_Release(ak_atomic_u16* Object, uint16_t Value) {
 	return AK_Atomic_Fetch_XOr_U16_Relaxed(Object, Value);
@@ -2125,9 +2125,7 @@ AKATOMICDEF uint64_t AK_Atomic_Exchange_U64_Relaxed(ak_atomic_u64* Object, uint6
         mov ecx, dword ptr Value+4
 		mov eax, dword ptr [esi]
 		mov edx, dword ptr [esi+4]
-    }
-    retry:
-    __asm {
+		retry:
 		lock cmpxchg8b qword ptr [esi] /*This gives us sequential consistency by default*/
         jne retry
     }
@@ -2206,9 +2204,7 @@ AKATOMICDEF uint64_t AK_Atomic_Fetch_Add_U64_Relaxed(ak_atomic_u64* Object, uint
 		mov esi, [Object]
 		mov eax, dword ptr [esi]
 		mov edx, dword ptr [esi+4]
-	}
-	retry:
-	__asm {
+		retry:
 		mov ebx, dword ptr Value
 		mov ecx, dword ptr Value+4
 		add ebx, eax
@@ -2265,9 +2261,7 @@ AKATOMICDEF uint64_t AK_Atomic_Fetch_And_U64_Relaxed(ak_atomic_u64* Object, uint
 		mov esi, [Object]
 		mov eax, dword ptr [esi]
 		mov edx, dword ptr [esi+4]
-	}
-	retry:
-	__asm {
+		retry:
 		mov ebx, dword ptr Value
 		mov ecx, dword ptr Value+4
 		and ebx, eax
@@ -2304,9 +2298,7 @@ AKATOMICDEF uint64_t AK_Atomic_Fetch_Or_U64_Relaxed(ak_atomic_u64* Object, uint6
 		mov esi, [Object]
 		mov eax, dword ptr [esi]
 		mov edx, dword ptr [esi+4]
-	}
-	retry:
-	__asm {
+		retry:
 		mov ebx, dword ptr Value
 		mov ecx, dword ptr Value+4
 		or  ebx, eax
@@ -2343,9 +2335,7 @@ AKATOMICDEF uint64_t AK_Atomic_Fetch_XOr_U64_Relaxed(ak_atomic_u64* Object, uint
 		mov esi, [Object]
 		mov eax, dword ptr [esi]
 		mov edx, dword ptr [esi+4]
-	}
-	retry:
-	__asm {
+		retry:
 		mov ebx, dword ptr Value
 		mov ecx, dword ptr Value+4
 		xor ebx, eax
@@ -2382,9 +2372,7 @@ AKATOMICDEF uint64_t AK_Atomic_Increment_U64_Relaxed(ak_atomic_u64* Object) {
 		mov esi, [Object]
 		mov eax, dword ptr [esi]
 		mov edx, dword ptr [esi+4]
-	}
-	retry:
-	__asm {
+		retry:
 		mov ebx, eax
 		mov ecx, edx
 		add ebx, 1 
@@ -2413,9 +2401,7 @@ AKATOMICDEF uint64_t AK_Atomic_Decrement_U64_Relaxed(ak_atomic_u64* Object) {
 		mov esi, [Object]
 		mov eax, dword ptr [esi]
 		mov edx, dword ptr [esi+4]
-	}
-	retry:
-	__asm {
+		retry:
 		mov ebx, eax
 		mov ecx, edx
 		add ebx, -1 
