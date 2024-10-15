@@ -1,47 +1,45 @@
-# Common global variables
-release=0
-debug=0
-clang=1 # Clang is the only supported compiler right now
-
 build_path=$(dirname "$(realpath "$0")")
-base_path="$build_path/.."
-bin_path="$base_path/bin/ak_atomic"
+base_path="$build_path/../../.."
 test_path="$base_path/tests/ak_atomic"
 
-# Get the architecture of the computer
-aarch=$(uname -m)
+compiler=$1
+build_mode=$2
+arch=$3
 
-# Build inputs and validation
-for var in "$@"
-do
-    if [ "$var" = "release" ]; then release=1; fi
-    if [ "$var" = "debug" ]; then debug=1; fi
-done
+if [ $build_mode != "release" ]; then
+    if [ $build_mode != "debug" ]; then
+        echo "Invalid build mode: $build_mode. Must be either 'debug' or 'release'"
+        exit 1
+    fi
+fi
 
-if [ ! $release -eq 1 ]; then debug=1; fi
+actual_arch="none"
+if [ $arch == "x64" ]; then actual_arch="x86_64"; fi
+if [ $arch == "x86" ]; then actual_arch="i686"; fi
+if [ $arch == "aarch64" ]; then actual_arch="aarch64"; fi
 
-# Build information
-if [ $clang -eq 1 ]; then compiler="Clang"; fi
-if [ $debug -eq 1 ]; then build_mode="Debug"; fi
-if [ $release -eq 1 ]; then build_mode="Release"; fi
+if [ $actual_arch == "none" ]; then
+    echo "Invalid architecture $arch not supported"
+    exit 1
+fi
 
-# Get the proper binary directory based on build inputs (goes compiler -> platform -> mode -> executable)
-if [ $clang -eq 1 ]; then bin_path="$bin_path/clang"; fi
-
-bin_path="$bin_path/$aarch"
-
-echo $bin_path
-
-if [ $debug -eq 1 ]; then bin_path="$bin_path/debug"; fi
-if [ $release -eq 1 ]; then bin_path="$bin_path/release"; fi
-
+# Binary path
+bin_path="$base_path/bin/ak_atomic/$compiler/$arch/$build_mode"
 if [ ! -d $bin_path ]; then
     mkdir -p $bin_path
 fi
 
+machine="none"
+if [ "$(uname)" == "Darwin" ]; then
+    # Do something under Mac OS X platform   
+    machine="apple-darwin"     
+elif [ "$(expr substr $(uname -s) 1 5)" == "Linux" ]; then
+    machine="linux-gnu"
+fi
+
 # Clang flags
 clang_warnings="-Werror -Wall -Wno-implicit-function-declaration"
-clang_flags="-g -fdiagnostics-absolute-paths -I$base_path $clang_warnings -m32"
+clang_flags="-g -fdiagnostics-absolute-paths -I$base_path $clang_warnings -target $arch-$machine"
 
 clang_debug_flags="-O0 $clang_flags"
 clang_release_flags="-O3 $clang_flags"
@@ -50,23 +48,24 @@ clang_out="-o"
 clang_compile="clang"
 
 # Unified compile flags
-
-if [ $clang -eq 1 ]; then compile_debug_flags=$clang_debug_flags; fi
-if [ $clang -eq 1 ]; then compile_release_flags=$clang_release_flags; fi
-if [ $clang -eq 1 ]; then compile_link=$clang_link; fi
-if [ $clang -eq 1 ]; then compile_out=$clang_out; fi
-if [ $clang -eq 1 ]; then compile=$clang_compile; fi
+if [ $compiler == "clang" ]; then compile_debug_flags=$clang_debug_flags; fi
+if [ $compiler == "clang" ]; then compile_release_flags=$clang_release_flags; fi
+if [ $compiler == "clang" ]; then compile_link=$clang_link; fi
+if [ $compiler == "clang" ]; then compile_out=$clang_out; fi
+if [ $compiler == "clang" ]; then compile=$clang_compile; fi
 
 # Choose between release and debug builds
-if [ $debug -eq 1 ]; then compile_flags=$compile_debug_flags; fi
-if [ $release -eq 1 ]; then compile_flags=$compile_release_flags; fi
+if [ $build_mode == "debug" ]; then compile_flags=$compile_debug_flags; fi
+if [ $build_mode == "release" ]; then compile_flags=$compile_release_flags; fi
 
 # Get all the configuration tests based on compiler and platform
 declare -a compile_tests
 declare -a compile_output
 declare -a compile_std
 
-if [ $clang -eq 1 ]; then
+echo $compile_flags
+
+if [ $compiler == "clang" ]; then
     compile_std+=("-std=c89 -ansi")
     compile_tests+=("$test_path/ak_atomic_unit_test.c")
 	compile_output+=("ak_atomic_c89_unit_test")
@@ -103,15 +102,6 @@ if [ $clang -eq 1 ]; then
     compile_tests+=("$test_path/ak_atomic_unit_test.cpp")
 	compile_output+=("ak_atomic_cpp20_unit_test")
 fi
-
-# Build all the tests
-
-echo "Compiler: $compiler $aarch"
-echo "Mode: $build_mode"
-echo "Compile Flags: $compile_flags"
-echo "Link Flags: $compile_link"
-echo "Output Path: $bin_path"
-echo
 
 pushd $bin_path
     for i in "${!compile_tests[@]}"; do 
