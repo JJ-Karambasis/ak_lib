@@ -360,6 +360,12 @@ AKATOMICDEF uint64_t AK_Atomic_Fetch_XOr_U64(ak_atomic_u64* Object, uint64_t Val
 AKATOMICDEF uint64_t AK_Atomic_Increment_U64(ak_atomic_u64* Object, ak_atomic_memory_order MemoryOrder);
 AKATOMICDEF uint64_t AK_Atomic_Decrement_U64(ak_atomic_u64* Object, ak_atomic_memory_order MemoryOrder);
 
+AKATOMICDEF void* AK_Atomic_Load_Ptr(const ak_atomic_ptr* Object, ak_atomic_memory_order MemoryOrder);
+AKATOMICDEF void  AK_Atomic_Store_Ptr(ak_atomic_ptr* Object, void* Value, ak_atomic_memory_order MemoryOrder);
+AKATOMICDEF void* AK_Atomic_Exchange_Ptr(ak_atomic_ptr* Object, void* NewValue, ak_atomic_memory_order MemoryOrder);
+AKATOMICDEF void* AK_Atomic_Compare_Exchange_Strong_Ptr(ak_atomic_ptr* Object, void* OldValue, void* NewValue, ak_atomic_memory_order MemoryOrder);
+AKATOMICDEF void* AK_Atomic_Compare_Exchange_Weak_Ptr(ak_atomic_ptr* Object, void* OldValue, void* NewValue, ak_atomic_memory_order MemoryOrder);
+
 typedef struct ak_thread ak_thread;
 #define AK_THREAD_CALLBACK_DEFINE(name) int32_t name(ak_thread* Thread, void* UserData)
 typedef AK_THREAD_CALLBACK_DEFINE(ak_thread_callback_func);
@@ -534,6 +540,68 @@ AKATOMICDEF void AK_TLS_Set(ak_tls* TLS, void* Data);
 AKATOMICDEF void AK_Sleep(uint32_t Milliseconds);
 AKATOMICDEF uint64_t AK_Query_Performance_Counter(void);
 AKATOMICDEF uint64_t AK_Query_Performance_Frequency(void);
+
+/*Threading primitives built ontop of os primitives*/
+
+/*Lightweight Semaphore*/
+typedef struct {
+	ak_semaphore Semaphore;
+	ak_atomic_u32 Count;
+	uint32_t MaxSpinCount;
+} ak_lw_semaphore;
+
+AKATOMICDEF int8_t AK_LW_Semaphore_Create_With_Spin_Count(ak_lw_semaphore* Semaphore, int32_t InitialCount, uint32_t SpinCount);
+AKATOMICDEF int8_t AK_LW_Semaphore_Create(ak_lw_semaphore* Semaphore, int32_t InitialCount);
+AKATOMICDEF void AK_LW_Semaphore_Delete(ak_lw_semaphore* Semaphore);
+AKATOMICDEF void AK_LW_Semaphore_Increment(ak_lw_semaphore* Semaphore);
+AKATOMICDEF void AK_LW_Semaphore_Decrement(ak_lw_semaphore* Semaphore);
+AKATOMICDEF void AK_LW_Semaphore_Add(ak_lw_semaphore* Semaphore, int32_t Increment);
+
+/*Event*/
+typedef struct {
+	ak_mutex Mutex;
+	ak_condition_variable ConditionVariable;
+	uint32_t State;
+	uint32_t Padding;
+} ak_event;
+
+AKATOMICDEF int8_t AK_Event_Create(ak_event* Event);
+AKATOMICDEF void AK_Event_Delete(ak_event* Event);
+AKATOMICDEF void AK_Event_Signal(ak_event* Event);
+AKATOMICDEF void AK_Event_Wait(ak_event* Event);
+AKATOMICDEF void AK_Event_Reset(ak_event* Event);
+
+/*Auto reset event*/
+typedef struct {
+	/*
+	1: Signaled
+	0: Reset and no threads are waiting
+    -N: Reset and N threads are waiting
+    */
+	ak_lw_semaphore Semaphore;
+	ak_atomic_u32 Status;
+	uint32_t Padding;
+} ak_auto_reset_event;
+
+AKATOMICDEF int8_t AK_Auto_Reset_Event_Create(ak_auto_reset_event* Event, int32_t InitialStatus);
+AKATOMICDEF void AK_Auto_Reset_Event_Delete(ak_auto_reset_event* Event);
+AKATOMICDEF void AK_Auto_Reset_Event_Signal(ak_auto_reset_event* Event);
+AKATOMICDEF void AK_Auto_Reset_Event_Wait(ak_auto_reset_event* Event);
+
+/*Read writer lock*/
+typedef struct {
+	ak_lw_semaphore ReadSemaphore;
+	ak_lw_semaphore WriteSemaphore;
+	ak_atomic_u32 Status;
+	uint32_t Padding;
+} ak_rw_lock;
+
+AKATOMICDEF int8_t AK_RW_Lock_Create(ak_rw_lock* Lock);
+AKATOMICDEF void AK_RW_Lock_Delete(ak_rw_lock* Lock);
+AKATOMICDEF void AK_RW_Lock_Reader(ak_rw_lock* Lock);
+AKATOMICDEF void AK_RW_Unlock_Reader(ak_rw_lock* Lock);
+AKATOMICDEF void AK_RW_Lock_Writer(ak_rw_lock* Lock);
+AKATOMICDEF void AK_RW_Unlock_Writer(ak_rw_lock* Lock);
 
 #endif
 
@@ -9696,6 +9764,51 @@ AKATOMICDEF uint64_t AK_Atomic_Decrement_U64(ak_atomic_u64* Object, ak_atomic_me
 	}
 	return Result;
 }
+
+#if AK_ATOMIC_PTR_SIZE == 8
+AKATOMICDEF void* AK_Atomic_Load_Ptr(const ak_atomic_ptr* Object, ak_atomic_memory_order MemoryOrder) {
+	return (void*)AK_Atomic_Load_U64((const ak_atomic_u64 *)Object, MemoryOrder);
+}
+
+AKATOMICDEF void AK_Atomic_Store_Ptr(ak_atomic_ptr* Object, void* Value, ak_atomic_memory_order MemoryOrder) {
+	AK_Atomic_Store_U64((ak_atomic_u64 *)Object, (uint64_t)Value, MemoryOrder);
+}
+
+AKATOMICDEF void* AK_Atomic_Exchange_Ptr(ak_atomic_ptr* Object, void* NewValue, ak_atomic_memory_order MemoryOrder) {
+	return (void*)AK_Atomic_Exchange_U64((ak_atomic_u64 *)Object, (uint64_t)NewValue, MemoryOrder);
+}
+
+AKATOMICDEF void* AK_Atomic_Compare_Exchange_Strong_Ptr(ak_atomic_ptr* Object, void* OldValue, void* NewValue, ak_atomic_memory_order MemoryOrder) {
+	return (void*)AK_Atomic_Compare_Exchange_Strong_U64((ak_atomic_u64 *)Object, (uint64_t)OldValue, (uint64_t)NewValue, MemoryOrder);
+}
+
+AKATOMICDEF void* AK_Atomic_Compare_Exchange_Weak_Ptr(ak_atomic_ptr* Object, void* OldValue, void* NewValue, ak_atomic_memory_order MemoryOrder) {
+	return (void*)AK_Atomic_Compare_Exchange_Weak_U64((ak_atomic_u64 *)Object, (uint64_t)OldValue, (uint64_t)NewValue, MemoryOrder);
+}
+
+#else
+
+AKATOMICDEF void* AK_Atomic_Load_Ptr(const ak_atomic_ptr* Object, ak_atomic_memory_order MemoryOrder) {
+	return (void*)AK_Atomic_Load_U32((const ak_atomic_u32 *)Object, MemoryOrder);
+}
+
+AKATOMICDEF void AK_Atomic_Store_Ptr(ak_atomic_ptr* Object, void* Value, ak_atomic_memory_order MemoryOrder) {
+	AK_Atomic_Store_U32((ak_atomic_u32 *)Object, (uint32_t)Value, MemoryOrder);
+}
+
+AKATOMICDEF void* AK_Atomic_Exchange_Ptr(ak_atomic_ptr* Object, void* NewValue, ak_atomic_memory_order MemoryOrder) {
+	return (void*)AK_Atomic_Exchange_U32((ak_atomic_u32 *)Object, (uint32_t)NewValue, MemoryOrder);
+}
+
+AKATOMICDEF void* AK_Atomic_Compare_Exchange_Strong_Ptr(ak_atomic_ptr* Object, void* OldValue, void* NewValue, ak_atomic_memory_order MemoryOrder) {
+	return (void*)AK_Atomic_Compare_Exchange_Strong_U32((ak_atomic_u32 *)Object, (uint32_t)OldValue, (uint32_t)NewValue, MemoryOrder);
+}
+
+AKATOMICDEF void* AK_Atomic_Compare_Exchange_Weak_Ptr(ak_atomic_ptr* Object, void* OldValue, void* NewValue, ak_atomic_memory_order MemoryOrder) {
+	return (void*)AK_Atomic_Compare_Exchange_Weak_U32((ak_atomic_u32 *)Object, (uint32_t)OldValue, (uint32_t)NewValue, MemoryOrder);
+}
+
+#endif
 
 /*OS Primtive implementations*/
 #if defined(AK_ATOMIC_OS_WIN32) /*Win32*/

@@ -2126,6 +2126,27 @@ UTEST(Increment, U64) {
 	ak_thread** Threads = (ak_thread**)Allocate_Memory(sizeof(ak_thread*)*NumThreads);
 
 	uint64_t i;
+
+	for(i = 0; i < NumThreads; i++) {
+		Threads[i] = AK_Thread_Create(IncrementU64, &Data);
+	}
+
+	for(i = 0; i < NumThreads; i++) {
+        AK_Thread_Delete(Threads[i]);
+    }
+
+	ASSERT_TRUE(AK_Atomic_Load_U64(&Data.SharedInt, AK_ATOMIC_MEMORY_ORDER_RELAXED) == TotalAmount);
+
+	for(i = 0; i < NumThreads; i++) {
+		Threads[i] = AK_Thread_Create(DecrementU64, &Data);
+	}
+
+	for(i = 0; i < NumThreads; i++) {
+        AK_Thread_Delete(Threads[i]);
+    }
+
+	ASSERT_TRUE(AK_Atomic_Load_U64(&Data.SharedInt, AK_ATOMIC_MEMORY_ORDER_RELAXED) == 0);
+
 	for(i = 0; i < NumThreads; i++) {
 		Threads[i] = AK_Thread_Create(FetchAddU64, &Data);
 	}
@@ -2147,26 +2168,87 @@ UTEST(Increment, U64) {
 	ASSERT_TRUE(AK_Atomic_Load_U64(&Data.SharedInt, AK_ATOMIC_MEMORY_ORDER_RELAXED) == 0);
 
 	Free_Memory(Threads);
+}
 
-	for(i = 0; i < NumThreads; i++) {
-		Threads[i] = AK_Thread_Create(IncrementU64, &Data);
-	}
+typedef struct compare_exchange_link_list_node compare_exchange_link_list_node;
+struct compare_exchange_link_list_node {
+	compare_exchange_link_list_node* Next;
+};
 
-	for(i = 0; i < NumThreads; i++) {
-        AK_Thread_Delete(Threads[i]);
+typedef struct {
+	compare_exchange_link_list_node* Nodes;
+	ak_thread* Thread;
+	ak_atomic_ptr* ListHead;
+	uint32_t Iterations;
+} compare_exchange_link_list_thread;
+
+typedef struct {
+	uint32_t ThreadCount;
+	compare_exchange_link_list_thread* Threads;
+} compare_exchange_link_list_context;
+
+static AK_THREAD_CALLBACK_DEFINE(CompareExchangeLinkList) {
+	compare_exchange_link_list_thread* Context = (compare_exchange_link_list_thread *)UserData;
+	compare_exchange_link_list_node* Nodes = Context->Nodes;
+	ak_atomic_ptr* ListHead = Context->ListHead;
+
+	uint32_t i; 
+    for(i = 0; i < Context->Iterations; i++) {
+        compare_exchange_link_list_node* Insert = Nodes + i;
+        compare_exchange_link_list_node* Head;
+        do {
+            Head = (compare_exchange_link_list_node*)AK_Atomic_Load_Ptr(ListHead, AK_ATOMIC_MEMORY_ORDER_RELAXED);
+            Insert->Next = Head;
+        } while(AK_Atomic_Compare_Exchange_Weak_Ptr(ListHead, Head, Insert, AK_ATOMIC_MEMORY_ORDER_RELAXED) != Head);
     }
 
-	ASSERT_TRUE(AK_Atomic_Load_U64(&Data.SharedInt, AK_ATOMIC_MEMORY_ORDER_RELAXED) == TotalAmount);
+    return 0;
+}
 
-	for(i = 0; i < NumThreads; i++) {
-		Threads[i] = AK_Thread_Create(DecrementU64, &Data);
+UTEST(CompareExchange, LinkList) {
+	uint32_t Iterations = 100000;
+
+	compare_exchange_link_list_context Context;
+	Context.ThreadCount = AK_Get_Processor_Thread_Count();
+	Context.Threads = (compare_exchange_link_list_thread *)Allocate_Memory(sizeof(compare_exchange_link_list_thread)*Context.ThreadCount);
+	Memory_Clear(Context.Threads, sizeof(compare_exchange_link_list_thread)*Context.ThreadCount);
+
+	ak_atomic_ptr ListHead;
+	Memory_Clear(&ListHead, sizeof(ak_atomic_ptr));
+
+	uint32_t i;
+	for (i = 0; i < Context.ThreadCount; i++) {
+		compare_exchange_link_list_thread* Thread = Context.Threads + i;
+		Thread->Nodes = (compare_exchange_link_list_node*)Allocate_Memory(sizeof(compare_exchange_link_list_node)*Iterations);
+		Thread->ListHead = &ListHead;
+		Thread->Iterations = Iterations;
+		Memory_Clear(Thread->Nodes, sizeof(compare_exchange_link_list_node)*Iterations);
 	}
 
-	for(i = 0; i < NumThreads; i++) {
-        AK_Thread_Delete(Threads[i]);
-    }
+	for (i = 0; i < Context.ThreadCount; i++) {
+		compare_exchange_link_list_thread* Thread = Context.Threads + i;
+		Thread->Thread = AK_Thread_Create(CompareExchangeLinkList, Thread);
+	}
 
-	ASSERT_TRUE(AK_Atomic_Load_U64(&Data.SharedInt, AK_ATOMIC_MEMORY_ORDER_RELAXED) == 0);
+	for (i = 0; i < Context.ThreadCount; i++) {
+		AK_Thread_Wait(Context.Threads[i].Thread);
+	}
+
+    uint32_t Count = 0;
+    compare_exchange_link_list_node* Node = (compare_exchange_link_list_node*)AK_Atomic_Load_Ptr(&ListHead, AK_ATOMIC_MEMORY_ORDER_RELAXED);
+    while(Node) {
+        AK_Atomic_Store_Ptr(&ListHead, Node->Next, AK_ATOMIC_MEMORY_ORDER_RELAXED);
+        Count++;
+        Node = (compare_exchange_link_list_node*)AK_Atomic_Load_Ptr(&ListHead, AK_ATOMIC_MEMORY_ORDER_RELAXED);
+    }
+    ASSERT_EQ(Count, Iterations*Context.ThreadCount);
+
+	for (i = 0; i < Context.ThreadCount; i++) {
+		Free_Memory(Context.Threads[i].Nodes);
+		AK_Thread_Delete(Context.Threads[i].Thread);
+	}
+
+	Free_Memory(Context.Threads);
 }
 
 #ifndef __ANDROID__
