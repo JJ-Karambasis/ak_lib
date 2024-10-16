@@ -1457,7 +1457,8 @@ static AK_THREAD_CALLBACK_DEFINE(CompareExchangeU8) {
 
 	uint32_t Count = 0;
     while(Count < Context->Iterations) {
-        if(AK_Atomic_Compare_Exchange_Strong_U8(&Context->Flag, 0, 1, AK_ATOMIC_MEMORY_ORDER_ACQUIRE) == 0) {
+		uint8_t OldValue = 0;
+        if(AK_Atomic_Compare_Exchange_Strong_U8(&Context->Flag, &OldValue, 1, AK_ATOMIC_MEMORY_ORDER_ACQUIRE)) {
             Context->SharedValue++;
             Count++;
             AK_Atomic_Store_U8(&Context->Flag, 0, AK_ATOMIC_MEMORY_ORDER_RELEASE);
@@ -1505,7 +1506,8 @@ static AK_THREAD_CALLBACK_DEFINE(CompareExchangeU16) {
 
 	uint32_t Count = 0;
     while(Count < Context->Iterations) {
-        if(AK_Atomic_Compare_Exchange_Strong_U16(&Context->Flag, 0, 1, AK_ATOMIC_MEMORY_ORDER_ACQUIRE) == 0) {
+		uint16_t OldValue = 0;
+        if(AK_Atomic_Compare_Exchange_Strong_U16(&Context->Flag, &OldValue, 1, AK_ATOMIC_MEMORY_ORDER_ACQUIRE)) {
             Context->SharedValue++;
             Count++;
             AK_Atomic_Store_U16(&Context->Flag, 0, AK_ATOMIC_MEMORY_ORDER_RELEASE);
@@ -1552,7 +1554,8 @@ static AK_THREAD_CALLBACK_DEFINE(CompareExchangeU32) {
 
 	uint32_t Count = 0;
     while(Count < Context->Iterations) {
-        if(AK_Atomic_Compare_Exchange_Strong_U32(&Context->Flag, 0, 1, AK_ATOMIC_MEMORY_ORDER_ACQUIRE) == 0) {
+		uint32_t OldValue = 0;
+        if(AK_Atomic_Compare_Exchange_Strong_U32(&Context->Flag, &OldValue, 1, AK_ATOMIC_MEMORY_ORDER_ACQUIRE)) {
             Context->SharedValue++;
             Count++;
             AK_Atomic_Store_U32(&Context->Flag, 0, AK_ATOMIC_MEMORY_ORDER_RELEASE);
@@ -1599,7 +1602,8 @@ static AK_THREAD_CALLBACK_DEFINE(CompareExchangeU64) {
 
 	uint32_t Count = 0;
     while(Count < Context->Iterations) {
-        if(AK_Atomic_Compare_Exchange_Strong_U64(&Context->Flag, 0, 1, AK_ATOMIC_MEMORY_ORDER_ACQUIRE) == 0) {
+		uint64_t OldValue = 0;
+        if(AK_Atomic_Compare_Exchange_Strong_U64(&Context->Flag, &OldValue, 1, AK_ATOMIC_MEMORY_ORDER_ACQUIRE)) {
             Context->SharedValue++;
             Count++;
             AK_Atomic_Store_U64(&Context->Flag, 0, AK_ATOMIC_MEMORY_ORDER_RELEASE);
@@ -1645,7 +1649,8 @@ UTEST(FetchReturnValues, U8) {
 	for(i = 0; i < 1000; i++) {
 		Expected = (Random_U32() & 1) != 0 ? Mirror : Random_U8();
 		Operand = Random_U8();
-		if(AK_Atomic_Compare_Exchange_Strong_U8(&Object, Expected, Operand, AK_ATOMIC_MEMORY_ORDER_RELAXED) != Mirror)
+		AK_Atomic_Compare_Exchange_Strong_U8(&Object, &Expected, Operand, AK_ATOMIC_MEMORY_ORDER_RELAXED);
+		if(Expected != Mirror)
 			ASSERT_FALSE(!"Failed");
 		
 		if(Expected == Mirror)
@@ -1679,7 +1684,8 @@ UTEST(FetchReturnValues, U16) {
 	for(i = 0; i < 1000; i++) {
 		Expected = (Random_U32() & 1) != 0 ? Mirror : Random_U16();
 		Operand = Random_U16();
-		if(AK_Atomic_Compare_Exchange_Strong_U16(&Object, Expected, Operand, AK_ATOMIC_MEMORY_ORDER_RELAXED) != Mirror)
+		AK_Atomic_Compare_Exchange_Strong_U16(&Object, &Expected, Operand, AK_ATOMIC_MEMORY_ORDER_RELAXED);
+		if(Expected != Mirror)
 			ASSERT_FALSE(!"Failed");
 		
 		if(Expected == Mirror)
@@ -1713,7 +1719,8 @@ UTEST(FetchReturnValues, U32) {
 	for(i = 0; i < 1000; i++) {
 		Expected = (Random_U32() & 1) != 0 ? Mirror : Random_U32();
 		Operand = Random_U32();
-		if(AK_Atomic_Compare_Exchange_Strong_U32(&Object, Expected, Operand, AK_ATOMIC_MEMORY_ORDER_RELAXED) != Mirror)
+		AK_Atomic_Compare_Exchange_Strong_U32(&Object, &Expected, Operand, AK_ATOMIC_MEMORY_ORDER_RELAXED);
+		if(Expected != Mirror)
 			ASSERT_FALSE(!"Failed");
 		
 		if(Expected == Mirror)
@@ -1747,7 +1754,8 @@ UTEST(FetchReturnValues, U64) {
 	for(i = 0; i < 1000; i++) {
 		Expected = (Random_U32() & 1) != 0 ? Mirror : Random_U64();
 		Operand = Random_U64();
-		if(AK_Atomic_Compare_Exchange_Strong_U64(&Object, Expected, Operand, AK_ATOMIC_MEMORY_ORDER_RELAXED) != Mirror)
+		AK_Atomic_Compare_Exchange_Strong_U64(&Object, &Expected, Operand, AK_ATOMIC_MEMORY_ORDER_RELAXED);
+		if(Expected != Mirror)
 			ASSERT_FALSE(!"Failed");
 		
 		if(Expected == Mirror)
@@ -2199,7 +2207,7 @@ static AK_THREAD_CALLBACK_DEFINE(CompareExchangeLinkList) {
         do {
             Head = (compare_exchange_link_list_node*)AK_Atomic_Load_Ptr(ListHead, AK_ATOMIC_MEMORY_ORDER_RELAXED);
             Insert->Next = Head;
-        } while(AK_Atomic_Compare_Exchange_Weak_Ptr(ListHead, Head, Insert, AK_ATOMIC_MEMORY_ORDER_RELAXED) != Head);
+        } while(!AK_Atomic_Compare_Exchange_Weak_Ptr(ListHead, (void**)&Head, Insert, AK_ATOMIC_MEMORY_ORDER_RELAXED));
     }
 
     return 0;
@@ -2241,7 +2249,7 @@ UTEST(CompareExchange, LinkList) {
         Count++;
         Node = (compare_exchange_link_list_node*)AK_Atomic_Load_Ptr(&ListHead, AK_ATOMIC_MEMORY_ORDER_RELAXED);
     }
-    ASSERT_EQ(Count, Iterations*Context.ThreadCount);
+    ASSERT_TRUE(Count == (Iterations*Context.ThreadCount));
 
 	for (i = 0; i < Context.ThreadCount; i++) {
 		Free_Memory(Context.Threads[i].Nodes);

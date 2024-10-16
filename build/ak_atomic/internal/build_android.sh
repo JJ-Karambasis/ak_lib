@@ -15,6 +15,10 @@ if [ $build_mode != "release" ]; then
     fi
 fi
 
+build_x86=0
+build_x64=0
+build_armv7=0
+build_aarch64=0
 if [ $arch == "all" ]; then
 	build_x86=1
 	build_x64=1

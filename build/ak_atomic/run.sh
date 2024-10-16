@@ -31,8 +31,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-echo "Sup"
-
 if [ $build_mode != "release" ]; then
     if [ $build_mode != "debug" ]; then
         echo "Invalid build mode: $build_mode. Must be either 'debug' or 'release'"
@@ -40,15 +38,11 @@ if [ $build_mode != "release" ]; then
     fi
 fi
 
-echo "Sup"
-
 # Binary path
 bin_path="$base_path/bin/ak_atomic/$compiler/$arch/$build_mode"
 if [ ! -d $bin_path ]; then
     mkdir -p $bin_path
 fi
-
-echo "Sup"
 
 paths=(`find "$bin_path" -perm -o=x,-g=x,-u=x -type f -name "*_unit_test"`)
 for i in "${paths[@]}"; do
